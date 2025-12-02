@@ -2,6 +2,7 @@
 const PDFDocument = require('pdfkit');
 const QRCode = require('qrcode');
 
+// Helper: Convert Base64 to Buffer
 const createBuffer = (base64Str) => {
     if (!base64Str || typeof base64Str !== 'string') return null;
     const base64Data = base64Str.replace(/^data:image\/\w+;base64,/, "");
@@ -9,17 +10,10 @@ const createBuffer = (base64Str) => {
     catch (e) { return null; }
 };
 
-exports.generateCertificatePDF = async (certificate, res) => {
-    console.log(`Generating Professional PDF for: ${certificate.studentName}`);
-
-    const doc = new PDFDocument({ layout: 'landscape', size: 'A4', margin: 0 });
-    
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=${certificate.studentName}-Certificate.pdf`);
-    doc.pipe(res);
-
-    const W = 841.89;
-    const H = 595.28;
+// --- SHARED DRAWING LOGIC ---
+const drawCertificateContent = async (doc, certificate) => {
+    const W = doc.page.width;
+    const H = doc.page.height;
     const CX = W / 2;
 
     // Extract Config
@@ -40,20 +34,16 @@ exports.generateCertificatePDF = async (certificate, res) => {
     const logoBuffer = createBuffer(config.collegeLogo);
     const signatureBuffer = createBuffer(config.signatureImage);
 
-    // --- 1. BORDERS ---
+    // 1. BORDERS
     doc.rect(0, 0, W, H).fill('#ffffff');
-    
-    // Classic Double Border
     doc.lineWidth(15).strokeColor('#1e3a8a'); // Dark Blue
     doc.rect(20, 20, W - 40, H - 40).stroke();
-    
     doc.lineWidth(1).strokeColor('#fbbf24'); // Gold
     doc.rect(32, 32, W - 64, H - 64).stroke();
 
-    // --- 2. HEADER BLOCK ---
+    // 2. HEADER
     let yPos = 60;
 
-    // Logo (Centered Top)
     if (logoBuffer) {
         try {
             doc.image(logoBuffer, CX - 40, yPos, { width: 80 });
@@ -61,137 +51,103 @@ exports.generateCertificatePDF = async (certificate, res) => {
         } catch (e) {}
     }
 
-    // College Name
     doc.font('Helvetica-Bold').fontSize(26).fillColor('#1e3a8a')
        .text(collegeName.toUpperCase(), 0, yPos, { align: 'center', width: W });
     yPos += 35;
 
-    // Address Line
     doc.font('Helvetica').fontSize(9).fillColor('#475569')
        .text(address, 60, yPos, { align: 'center', width: W - 120 });
     yPos += 30; 
 
-    // Department Header
     doc.font('Helvetica-Bold').fontSize(14).fillColor('#000000')
        .text(deptHeader, 0, yPos, { align: 'center', width: W });
     yPos += 40;
 
-    // Certificate Title
     doc.font('Helvetica-Bold').fontSize(32).fillColor('#b45309') 
        .text(certTitle, 0, yPos, { align: 'center', characterSpacing: 2 });
     yPos += 60;
 
-    // --- 3. BODY TEXT ---
-    
+    // 3. BODY
     const dateStr = new Date(certificate.eventDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
     
     doc.font('Times-Roman').fontSize(18).fillColor('#0f172a').text('This is to Certify that Mr/Ms', 0, yPos, { align: 'center' });
     yPos += 30;
 
-    // Student Name
     doc.font('Times-BoldItalic').fontSize(36).fillColor('#1e40af')
        .text(certificate.studentName, 0, yPos, { align: 'center' });
     
-    // Underline
     const nameW = doc.widthOfString(certificate.studentName);
     doc.lineWidth(1).strokeColor('#1e40af')
        .moveTo(CX - nameW/2 - 10, yPos + 32).lineTo(CX + nameW/2 + 10, yPos + 32).stroke();
     yPos += 45;
 
-    // The Details Line
     const bodyText = `of ${studentSem} semester ${studentBranch} has attended the ${duration}${eventType}`;
     doc.font('Times-Roman').fontSize(18).fillColor('#0f172a').text(bodyText, 0, yPos, { align: 'center' });
     yPos += 30;
 
-    // Event Name & Date
     doc.font('Helvetica-Bold').fontSize(22).text(certificate.eventName, 0, yPos, { align: 'center' });
     yPos += 30;
     doc.font('Times-Roman').fontSize(16).text(`on ${dateStr}`, 0, yPos, { align: 'center' });
 
-
-    // --- 4. FOOTER ---
+    // 4. FOOTER
     const footerY = H - 130;
     const sigX = W - 250;
 
-    // QR Code (Left)
+    // QR Code
     try {
-        const qrUrl = await QRCode.toDataURL(`https://final-project-wheat-mu-84.vercel.app/verify/${certificate.certificateId}`);
+        const qrUrl = await QRCode.toDataURL(`https://the-blockchain-based-skill-credenti.vercel.app/verify/${certificate.certificateId}`);
         doc.image(qrUrl, 60, footerY, { width: 80 });
         doc.fontSize(9).font('Helvetica').text('Scan to Verify', 60, footerY + 85, { width: 80, align: 'center' });
     } catch (e) {}
 
-    // --- SIGNATURE LOGIC ---
+    // Signature
     if (signatureBuffer) {
-        // OPTION A: User provided a signature image -> Draw it normally
         try { doc.image(signatureBuffer, sigX + 20, footerY - 10, { width: 140 }); } catch (e) {}
-        
-        // Draw line and text below it
         doc.moveTo(sigX, footerY + 70).lineTo(sigX + 180, footerY + 70).lineWidth(1).strokeColor('black').stroke();
         doc.fontSize(12).text(signText, sigX, footerY + 80, { width: 180, align: 'center' });
     } else {
-        // OPTION B: No signature -> Draw a "Digital Seal"
         doc.save();
-        
         const sealX = sigX + 90;
         const sealY = footerY + 40;
-        
-        // Gold Ring
         doc.circle(sealX, sealY, 40).fillOpacity(0.05).fill('#d97706'); 
         doc.circle(sealX, sealY, 36).lineWidth(2).strokeColor('#d97706').fillOpacity(0).stroke();
-        
-        // Seal Text
         doc.font('Helvetica-Bold').fontSize(10).fillColor('#b45309').fillOpacity(1)
            .text('DIGITALLY', sealX - 50, sealY - 12, { width: 100, align: 'center' });
         doc.text('VERIFIED', sealX - 50, sealY, { width: 100, align: 'center' });
         doc.font('Helvetica').fontSize(7).text('CredentialChain AI', sealX - 50, sealY + 15, { width: 100, align: 'center' });
-        
         doc.restore();
     }
 
-    // --- ID ALIGNMENT FIX ---
-    // Moved UP above the border
+    // ID Footer
     doc.fontSize(10).fillColor('#94a3b8')
        .text(`Certificate ID: ${certificate.certificateId} | Generated by Blockchain Credentialing System`, 0, H - 55, { align: 'center', width: W });
+};
 
+// --- PUBLIC FUNCTION: Generate & Stream (For Download) ---
+exports.generateCertificatePDF = async (certificate, res) => {
+    const doc = new PDFDocument({ layout: 'landscape', size: 'A4', margin: 0 });
+    
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=${certificate.studentName}-Certificate.pdf`);
+    doc.pipe(res);
+
+    await drawCertificateContent(doc, certificate);
     doc.end();
 };
 
-
-// ... (keep all existing code and imports) ...
-
-// --- NEW: Generate PDF as Buffer (For IPFS Upload) ---
+// --- PUBLIC FUNCTION: Generate & Buffer (For IPFS) ---
 exports.createPDFBuffer = async (certificate) => {
     return new Promise(async (resolve, reject) => {
         try {
             const doc = new PDFDocument({ layout: 'landscape', size: 'A4', margin: 0 });
             const buffers = [];
 
-            // Capture the PDF data in an array
             doc.on('data', buffers.push.bind(buffers));
-            doc.on('end', () => {
-                const pdfData = Buffer.concat(buffers);
-                resolve(pdfData);
-            });
+            doc.on('end', () => resolve(Buffer.concat(buffers)));
+            doc.on('error', reject);
 
-            // --- COPY DRAWING LOGIC HERE ---
-            // Note: Ideally, we refactor the drawing code into a separate 'drawCertificate(doc, cert)' function
-            // to reuse it. For now, to keep it simple, we will use a simplified drawing logic 
-            // just for the IPFS backup, or you can copy-paste the full logic from generateCertificatePDF.
-            
-            // Simplified Drawing for IPFS Backup:
-            const W = doc.page.width;
-            doc.rect(0, 0, W, doc.page.height).fill('#fff');
-            doc.fontSize(30).fillColor('black').text(certificate.eventName, 0, 200, { align: 'center' });
-            doc.fontSize(20).text(`Awarded to ${certificate.studentName}`, { align: 'center' });
-            doc.fontSize(15).text(`ID: ${certificate.certificateId}`, { align: 'center' });
-            
-            // Add QR Code
-            const qrLink = `https://final-project-wheat-mu-84.vercel.app/verify/${certificate.certificateId}`;
-            const qrData = await QRCode.toDataURL(qrLink);
-            doc.image(qrData, 50, 450, { width: 80 });
-
+            await drawCertificateContent(doc, certificate);
             doc.end();
-
         } catch (error) {
             reject(error);
         }
