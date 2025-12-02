@@ -1,9 +1,10 @@
 // In client/src/components/ParticipantsModal.jsx
 import React, { useState, useEffect } from 'react';
-import api from '../api.js'; 
+// --- FIX: Use alias for API to avoid relative path issues ---
+import api from '@/api'; 
+// ------------------------------------------------------------
 
-// --- SHADCN IMPORTS ---
-// Using relative paths to bypass alias issues
+// --- SHADCN IMPORTS (Using relative paths) ---
 import {
   Dialog,
   DialogContent,
@@ -11,15 +12,13 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from "./ui/dialog.jsx"; // Relative path
-import { Button } from "./ui/button.jsx"; // Relative path
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table.jsx"; // Relative path
-import { ScrollArea } from "./ui/scroll-area.jsx"; // Relative path
-import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar.jsx"; // Relative path
-
-// --- FIX: Use new file names with relative paths ---
-import { Badge } from "./ui/badge-item.jsx"; 
-import { Alert, AlertDescription } from "./ui/alert-box.jsx";
+} from "./ui/dialog"; 
+import { Button } from "./ui/button"; 
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table"; 
+import { ScrollArea } from "./ui/scroll-area"; 
+import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
+import { Badge } from "./ui/badge-item"; // Using the renamed file
+import { Alert, AlertDescription } from "./ui/alert-box"; // Using the renamed file
 // ------------------------------
 
 import { Loader2, Mail, User, AlertCircle, CheckCircle2, Award } from "lucide-react";
@@ -44,8 +43,7 @@ function ParticipantsModal({ event, onClose }) {
                     setParticipants(response.data);
                 } catch (err) {
                     console.error("Fetch error:", err);
-                    // Handle 401 explicitly if needed, but AuthContext usually handles redirects
-                    setError('Failed to fetch participants. Please try logging in again.');
+                    setError('Failed to fetch participants.');
                 } finally {
                     setLoading(false);
                 }
@@ -61,7 +59,8 @@ function ParticipantsModal({ event, onClose }) {
         setIssueStatus(prev => ({ ...prev, [email]: { message: 'Issuing...', isError: false, loading: true } }));
 
         try {
-            const response = await api.post('/issue/single', { 
+            // Ensure this route matches your backend router (usually /certificates/issue/single)
+            const response = await api.post('/certificates/issue/single', { 
                 eventName: eventName,
                 eventDate: eventDate,
                 studentName: name,
@@ -75,12 +74,11 @@ function ParticipantsModal({ event, onClose }) {
         }
     };
 
-    // Determine if modal is open based on 'event' prop
     const isOpen = !!event;
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="sm:max-w-3xl max-h-[85vh] flex flex-col bg-background">
+            <DialogContent className="sm:max-w-3xl max-h-[85vh] flex flex-col bg-background text-foreground">
                 <DialogHeader className="pb-4 border-b">
                     <DialogTitle className="text-2xl flex items-center gap-2">
                         <User className="h-6 w-6 text-primary" /> 
@@ -99,7 +97,6 @@ function ParticipantsModal({ event, onClose }) {
                     </div>
                     <div className="bg-muted/50 p-3 rounded-lg border text-center">
                         <div className="text-2xl font-bold text-green-600">
-                            {/* Count how many have certificates (if we had that data here, for now placeholder) */}
                             {Object.values(issueStatus).filter(s => !s.isError && !s.loading).length}
                         </div>
                         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Issued This Session</div>
@@ -118,7 +115,6 @@ function ParticipantsModal({ event, onClose }) {
                     </div>
                 ) : (
                     <div className="flex-grow overflow-hidden border rounded-lg bg-card">
-                        {/* Use ScrollArea for long lists */}
                         <ScrollArea className="h-[400px] w-full">
                             {participants.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
@@ -170,7 +166,6 @@ function ParticipantsModal({ event, onClose }) {
                                                     </TableCell>
                                                     <TableCell className="text-right">
                                                         {status?.message && !status?.loading && !status?.isError ? (
-                                                            // If done, show nothing or a view button
                                                             <Button variant="ghost" size="sm" disabled className="text-green-600">
                                                                 Done
                                                             </Button>
