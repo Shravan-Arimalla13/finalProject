@@ -1,8 +1,9 @@
 // In client/src/components/ParticipantsModal.jsx
 import React, { useState, useEffect } from 'react';
-import api from '../api.js'; // Explicit .js extension
+import api from '../api.js'; 
 
 // --- SHADCN IMPORTS ---
+// Using relative paths to bypass alias issues
 import {
   Dialog,
   DialogContent,
@@ -10,15 +11,18 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ScrollArea } from "@/components/ui/scroll-area"; 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
+} from "./ui/dialog.jsx"; // Relative path
+import { Button } from "./ui/button.jsx"; // Relative path
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table.jsx"; // Relative path
+import { ScrollArea } from "./ui/scroll-area.jsx"; // Relative path
+import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar.jsx"; // Relative path
+
+// --- FIX: Use new file names with relative paths ---
+import { Badge } from "./ui/badge-item.jsx"; 
+import { Alert, AlertDescription } from "./ui/alert-box.jsx";
+// ------------------------------
+
 import { Loader2, Mail, User, AlertCircle, CheckCircle2, Award } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-// ---
 
 function ParticipantsModal({ event, onClose }) {
     const [participants, setParticipants] = useState([]);
@@ -71,6 +75,7 @@ function ParticipantsModal({ event, onClose }) {
         }
     };
 
+    // Determine if modal is open based on 'event' prop
     const isOpen = !!event;
 
     return (
@@ -113,6 +118,7 @@ function ParticipantsModal({ event, onClose }) {
                     </div>
                 ) : (
                     <div className="flex-grow overflow-hidden border rounded-lg bg-card">
+                        {/* Use ScrollArea for long lists */}
                         <ScrollArea className="h-[400px] w-full">
                             {participants.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
