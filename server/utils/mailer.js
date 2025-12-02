@@ -22,7 +22,7 @@ const transporter = nodemailer.createTransport({
 
 // --- IMPORTANT: UPDATE THIS TO YOUR REAL VERCEL DOMAIN ---
 // Ensure there is NO trailing slash at the end
-const BASE_URL = "https://the-blockchain-based-skill-credenti.vercel.app";
+const BASE_URL = "https://final-project-wheat-mu-84.vercel.app/";
 
 // --- Faculty Invite ---
 exports.sendFacultyInvite = async (email, token) => {

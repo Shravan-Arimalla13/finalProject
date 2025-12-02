@@ -102,7 +102,7 @@ function ProfilePage() {
                                     {/* Smart Share Button */}
 <Button variant="ghost" size="icon" className="text-blue-600" onClick={() => {
     const shareText = `I just earned a verified blockchain credential for ${cert.eventName} from ${cert.issuedBy?.name || 'my college'}! 🎓 Verify it here:`;
-    const verifyUrl = `https://the-blockchain-based-skill-credenti.vercel.app/verify/${cert.certificateId}`;
+    const verifyUrl = `https://final-project-wheat-mu-84.vercel.app/verify/${cert.certificateId}`;
     
     // Construct Twitter/X URL
     const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(verifyUrl)}`;

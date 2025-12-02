@@ -115,7 +115,7 @@ exports.generateCertificatePDF = async (certificate, res) => {
 
     // QR Code (Left)
     try {
-        const qrUrl = await QRCode.toDataURL(`https://the-blockchain-based-skill-credenti.vercel.app/verify/${certificate.certificateId}`);
+        const qrUrl = await QRCode.toDataURL(`https://final-project-wheat-mu-84.vercel.app/verify/${certificate.certificateId}`);
         doc.image(qrUrl, 60, footerY, { width: 80 });
         doc.fontSize(9).font('Helvetica').text('Scan to Verify', 60, footerY + 85, { width: 80, align: 'center' });
     } catch (e) {}
