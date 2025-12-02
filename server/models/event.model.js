@@ -62,21 +62,20 @@ const eventSchema = new Schema({
         showIssuerName: { type: Boolean, default: true },
         showFooterID: { type: Boolean, default: true },
         customSignatureText: { type: String, default: 'Authorized Signature' }
-    }
+    },
     // ---------------------------------------------
     
 
-    
-// --- NEW POAP FIELDS ---
-        checkInToken: { type: String }, // Secret for QR code
-        checkInTokenExpiry: { type: Date },
-        location: {
-            latitude: Number,
-            longitude: Number,
-            address: String,
-            radius: { type: Number, default: 0.5 } // km
-        }
-        // -----------------------
+     // --- POAP / CHECK-IN FIELDS ---
+    checkInToken: { type: String }, // Secret token for QR code
+    checkInTokenExpiry: { type: Date },
+    location: {
+        latitude: Number,
+        longitude: Number,
+        address: String,
+        radius: { type: Number, default: 0.5 } // km
+    }
+    // ------------------------------
     }, 
 
 { timestamps: true });

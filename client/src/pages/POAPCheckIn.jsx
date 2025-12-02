@@ -6,7 +6,7 @@ import api from '../api.js'; // Use explicit .js extension for build stability
 // --- SHADCN IMPORTS (Using relative paths to be safe) ---
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription } from "@/components/ui/alert-box";
 import { Badge } from "@/components/ui/badge-item"; // Use your renamed file
 import { 
     MapPin, Clock, Loader2, CheckCircle2, 
