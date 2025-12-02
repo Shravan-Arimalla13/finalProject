@@ -20,11 +20,7 @@ const certificateSchema = new mongoose.Schema({
     transactionHash: { // The TX hash (proof of minting)
         type: String
     },
-    // --- ADD IPFS FIELDS ---
-    ipfsHash: { type: String },       // The PDF CID
-    ipfsUrl: { type: String },        // The viewable link
-    ipfsMetadataUrl: { type: String }, // The JSON metadata link
-    // -----------------------
+
     studentName: {
         type: String,
         required: true
@@ -50,6 +46,11 @@ const certificateSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+        // --- ADD IPFS FIELDS ---
+    ipfsHash: { type: String },       // The PDF CID
+    ipfsUrl: { type: String },        // The viewable link
+    ipfsMetadataUrl: { type: String }, // The JSON metadata link
+    // -----------------------
     // Track how many times it has been scanned
     scanCount: {
         type: Number,
