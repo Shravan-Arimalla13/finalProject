@@ -10,6 +10,7 @@ import SuperAdminRoute from './components/SuperAdminRoute';
 import RoleRoute from './components/RoleRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 import Loading from './components/Loading'; 
+import POAPCheckIn from './pages/POAPCheckIn';
 
 // --- LAZY LOAD PAGES ---
 const LoginPage = React.lazy(() => import('./pages/LoginPage'));
@@ -54,6 +55,7 @@ function App() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
           <Route path="/" element={<LoginPage />} />
+           <Route path="/poap/checkin" element={<ProtectedRoute><POAPCheckIn /></ProtectedRoute>} />
 
           {/* --- Protected Routes --- */}
           <Route 

@@ -64,9 +64,22 @@ const eventSchema = new Schema({
         customSignatureText: { type: String, default: 'Authorized Signature' }
     }
     // ---------------------------------------------
+    
 
     
-}, { timestamps: true });
+// --- NEW POAP FIELDS ---
+        checkInToken: { type: String }, // Secret for QR code
+        checkInTokenExpiry: { type: Date },
+        location: {
+            latitude: Number,
+            longitude: Number,
+            address: String,
+            radius: { type: Number, default: 0.5 } // km
+        }
+        // -----------------------
+    }, 
+
+{ timestamps: true });
 
 const Event = mongoose.model('Event', eventSchema);
 
