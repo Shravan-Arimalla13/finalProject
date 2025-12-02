@@ -7,7 +7,7 @@ import api from '../api';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge-item";
 import { Skeleton } from "@/components/ui/skeleton";
 import { 
     Loader2, CheckCircle2, XCircle, Trophy, ShieldCheck, 

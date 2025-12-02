@@ -36,7 +36,7 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert-box";
+import { Alert, AlertDescription } from "@/components/ui/alert-box";
 
 // --- 1. PROFESSIONAL COLOR PALETTE ---
 const COLORS = [

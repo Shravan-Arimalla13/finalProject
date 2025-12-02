@@ -10,7 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert-box";
-import { Badge } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge-item";
 import { CheckCircle2, XCircle, Loader2, AlertCircle, Search, ShieldCheck } from "lucide-react";
 // ---
 

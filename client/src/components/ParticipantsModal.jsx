@@ -1,6 +1,7 @@
 // In client/src/components/ParticipantsModal.jsx
 import React, { useState, useEffect } from 'react';
 import api from '../api';
+import { Alert, AlertDescription } from "@/components/ui/alert-box";
 
 function ParticipantsModal({ event, onClose }) {
     const [participants, setParticipants] = useState([]);
