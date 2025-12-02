@@ -5,11 +5,10 @@ const User = require('../models/user.model');
 const { nanoid } = require('nanoid');
 const crypto = require('crypto');
 const { mintNFT, isHashValid, revokeByHash } = require('../utils/blockchain');
-const { generateCertificatePDF } = require('../utils/certificateGenerator');
+const { generateCertificatePDF, createPDFBuffer } = require('../utils/certificateGenerator'); // Ensure createPDFBuffer is imported
 const { sendCertificateIssued } = require('../utils/mailer'); 
-const { logActivity } = require('../utils/logger'); // <-- RESTORED THIS IMPORT
-const { createPDFBuffer } = require('../utils/certificateGenerator'); // <-- NEW
-const ipfsService = require('../services/ipfs.service'); // <-- NEW
+const { logActivity } = require('../utils/logger');
+const ipfsService = require('../services/ipfs.service');
 
 // --- ISSUE SINGLE CERTIFICATE ---
 exports.issueSingleCertificate = async (req, res) => {
@@ -35,22 +34,50 @@ exports.issueSingleCertificate = async (req, res) => {
         const certificateHash = crypto.createHash('sha256').update(hashData).digest('hex');
         const { transactionHash, tokenId } = await mintNFT(student.walletAddress, certificateHash);
 
-        // --- NEW: IPFS UPLOAD ---
-        console.log("Generating PDF for IPFS...");
-
-        // Generate Buffer
-        const pdfBuffer = await createPDFBuffer(certDataForPDF);
+        // --- 2. PREPARE DATA (FIXED ORDER) ---
+        const certificateId = `CERT-${nanoid(10)}`; // Generate ID first
         
-        // Upload to Pinata
-        const ipfsResult = await ipfsService.uploadCertificate(pdfBuffer, certDataForPDF.certificateId);
+        // Fetch event config so the IPFS PDF looks correct
+        const event = await Event.findOne({ name: eventName });
+        const config = event?.certificateConfig || {};
+
+        const certDataForPDF = {
+            certificateId,
+            studentName,
+            eventName,
+            eventDate,
+            studentEmail: normalizedEmail,
+            config: config,
+            studentDepartment: student.department,
+            studentSemester: student.semester
+        };
+
+        // --- 3. IPFS UPLOAD ---
+        console.log("Generating PDF for IPFS...");
+        let ipfsHash = null;
+        let ipfsUrl = null;
+
+        try {
+            // Generate Buffer
+            const pdfBuffer = await createPDFBuffer(certDataForPDF);
+            
+            // Upload to Pinata
+            const ipfsResult = await ipfsService.uploadCertificate(pdfBuffer, certDataForPDF);
+            
+            if (ipfsResult) {
+                ipfsHash = ipfsResult.ipfsHash;
+                ipfsUrl = ipfsResult.ipfsUrl;
+            }
+        } catch (ipfsError) {
+            console.error("IPFS Upload Warning:", ipfsError.message);
+            // We continue even if IPFS fails, so we don't block the certificate issuance
+        }
         // ------------------------
 
-        
-        // 2. Save to DB
-        const certificateId = `CERT-${nanoid(10)}`;
+        // 4. Save to DB
         const newCert = new Certificate({
-            certificateId: certDataForPDF.certificateId, // Use the ID we generated above
-            tokenId,
+            certificateId,
+            tokenId: tokenId.toString(), // Ensure string
             certificateHash,
             transactionHash,
             studentName,
@@ -58,27 +85,24 @@ exports.issueSingleCertificate = async (req, res) => {
             eventName,
             eventDate,
             issuedBy: issuerId,
-            verificationUrl: `/verify/${certDataForPDF.certificateId}`,
+            verificationUrl: `/verify/${certificateId}`,
             
             // SAVE IPFS DATA
-            ipfsHash: ipfsResult?.hash,
-            ipfsUrl: ipfsResult?.url
+            ipfsHash,
+            ipfsUrl
         });
         await newCert.save();
 
-        
-        
-
-        // 3. Send Email
+        // 5. Send Email
         await sendCertificateIssued(normalizedEmail, studentName, eventName, certificateId);
 
-        // 4. Log Activity (RESTORED!)
+        // 6. Log Activity
         await logActivity(req.user, "CERTIFICATE_ISSUED", `Issued NFT to ${studentName} for ${eventName}`);
 
-        res.status(201).json({ message: 'NFT Issued & Logged ✅', certificate: newCert });
+        res.status(201).json({ message: 'NFT Issued & IPFS Uploaded ✅', certificate: newCert });
 
     } catch (error) {
-        console.error('Error issuing single certificate:', error.message);
+        console.error('Error issuing single certificate:', error);
         res.status(500).json({ message: error.message });
     }
 };
@@ -114,16 +138,45 @@ exports.issueEventCertificates = async (req, res) => {
             const certificateHash = crypto.createHash('sha256').update(hashData).digest('hex');
 
             try {
+                // Mint
                 const { transactionHash, tokenId } = await mintNFT(student.walletAddress, certificateHash);
                 const certificateId = `CERT-${nanoid(10)}`;
                 
+                // Prepare Data for IPFS
+                const certDataForPDF = {
+                    certificateId,
+                    studentName: participant.name,
+                    eventName: event.name,
+                    eventDate: event.date,
+                    studentEmail: normalizedEmail,
+                    config: event.certificateConfig,
+                    studentDepartment: student.department,
+                    studentSemester: student.semester
+                };
+
+                // Upload to IPFS (Silent fail logic for bulk)
+                let ipfsHash = null;
+                let ipfsUrl = null;
+                try {
+                    const pdfBuffer = await createPDFBuffer(certDataForPDF);
+                    const ipfsResult = await ipfsService.uploadCertificate(pdfBuffer, certDataForPDF);
+                    if (ipfsResult) {
+                        ipfsHash = ipfsResult.ipfsHash;
+                        ipfsUrl = ipfsResult.ipfsUrl;
+                    }
+                } catch (e) { console.error("Bulk IPFS Error:", e.message); }
+
+                // Save DB
                 const newCert = new Certificate({
-                    certificateId, tokenId, certificateHash, transactionHash,
+                    certificateId, tokenId: tokenId.toString(), certificateHash, transactionHash,
                     studentName: participant.name, studentEmail: normalizedEmail,
                     eventName: event.name, eventDate: event.date,
-                    issuedBy: issuerId, verificationUrl: `/verify/${certificateId}`
+                    issuedBy: issuerId, verificationUrl: `/verify/${certificateId}`,
+                    ipfsHash, ipfsUrl
                 });
                 await newCert.save();
+                
+                // Email
                 sendCertificateIssued(normalizedEmail, participant.name, event.name, certificateId);
                 
                 issuedCount++;
@@ -136,7 +189,6 @@ exports.issueEventCertificates = async (req, res) => {
         event.certificatesIssued = true;
         await event.save();
 
-        // --- Log Activity (RESTORED!) ---
         if (issuedCount > 0) {
             await logActivity(req.user, "BULK_ISSUE", `Issued ${issuedCount} NFTs for event: ${event.name}`);
         }
@@ -156,21 +208,20 @@ exports.revokeCertificate = async (req, res) => {
         if (!certificate) return res.status(404).json({ message: 'Certificate not found.' });
 
         await revokeByHash(certificate.certificateHash);
-        
-        // --- Log Activity (RESTORED!) ---
         await logActivity(req.user, "CERTIFICATE_REVOKED", `Revoked certificate ID: ${certificateId}`);
 
-        res.status(200).json({ message: 'Certificate revoked on blockchain.' });
+        // Update DB to reflect revocation immediately (optional but good for UI)
+        // certificate.isRevoked = true; // If you add this field to schema
+        // await certificate.save();
+
+        res.status(200).json({ message: 'Certificate successfully revoked on the blockchain.' });
     } catch (error) {
         console.error('Revocation failed:', error);
         res.status(500).json({ message: 'Server error during revocation.' });
     }
 };
 
-// --- GETTERS (No logging needed) ---
-// In server/controllers/certificate.controller.js
-
-// --- VERIFY CERTIFICATE (UPGRADED WITH IMAGES) ---
+// --- VERIFY CERTIFICATE ---
 exports.verifyCertificate = async (req, res) => {
     function escapeRegExp(string) {
       return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -188,13 +239,9 @@ exports.verifyCertificate = async (req, res) => {
             return res.status(404).json({ message: 'Certificate not found or invalid.' });
         }
 
-        // --- NEW: Fetch Event Design Config ---
-        // We need this to get the Logo and Signature
         const event = await Event.findOne({ name: certificate.eventName });
         const config = event?.certificateConfig || {};
-        // --------------------------------------
 
-        // Increment Scan Count
         certificate.scanCount += 1;
         await certificate.save();
 
@@ -211,20 +258,23 @@ exports.verifyCertificate = async (req, res) => {
             certificateId: certificate.certificateId,
             isBlockchainVerified: exists,
             isRevoked: isRevoked,
-            // --- PASS CONFIG TO FRONTEND ---
             design: {
                 logo: config.collegeLogo,
                 signature: config.signatureImage,
                 collegeName: config.collegeName,
                 title: config.certificateTitle,
                 dept: config.headerDepartment
-            }
+            },
+            // Return IPFS links if available
+            ipfsUrl: certificate.ipfsUrl
         });
     } catch (error) {
         console.error(error);
         res.status(500).send('Server Error');
     }
 };
+
+// --- GET MY CERTIFICATES ---
 exports.getMyCertificates = async (req, res) => {
     try {
         const certificates = await Certificate.find({ studentEmail: req.user.email }).populate('issuedBy', 'name').sort({ eventDate: -1 });
@@ -232,6 +282,7 @@ exports.getMyCertificates = async (req, res) => {
     } catch (error) { res.status(500).send('Server Error'); }
 };
 
+// --- DOWNLOAD PDF ---
 exports.downloadCertificate = async (req, res) => {
     try {
         const certificate = await Certificate.findOne({ certificateId: req.params.certId }).populate('issuedBy', 'name');
