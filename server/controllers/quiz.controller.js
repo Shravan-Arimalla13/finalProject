@@ -1,5 +1,5 @@
 // In server/controllers/quiz.controller.js
-const { GoogleGenAI } = require("@google/genai");
+const { GoogleGenerativeAI } = require("@google/generative-ai"); // Using the installed SDK
 const Quiz = require('../models/quiz.model');
 const Certificate = require('../models/certificate.model');
 const Event = require('../models/event.model');
@@ -9,8 +9,10 @@ const crypto = require('crypto');
 const { mintNFT } = require('../utils/blockchain');
 const { sendCertificateIssued } = require('../utils/mailer');
 
-// Initialize the client
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// --- CONFIGURATION ---
+// Use the stable alias. Google routes this to the best available version.
+const MODEL_NAME = "gemini-1.5-flash"; 
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Helper to clean AI response
 const cleanJSON = (text) => {
@@ -18,11 +20,29 @@ const cleanJSON = (text) => {
     return text.replace(/```json/g, '').replace(/```/g, '').trim();
 };
 
+// --- FAILSAFE QUESTION GENERATOR ---
+// If AI crashes, we serve this instead of a 500 Error
+const getFallbackQuestion = (topic, difficulty) => {
+    return {
+        question: `(Backup Mode) Which of the following describes ${topic}?`,
+        options: [
+            "A popular technology concept", 
+            "A type of food", 
+            "A geographical location", 
+            "A historical event"
+        ],
+        correctAnswer: "A popular technology concept",
+        explanation: "The AI service is temporarily busy, but you can continue the quiz!",
+        difficulty: difficulty
+    };
+};
+
 // --- 1. CREATE QUIZ ---
 exports.createQuiz = async (req, res) => {
     try {
         const { topic, description, totalQuestions, passingScore } = req.body;
-        const userDept = (req.user.department || 'General').toUpperCase();
+        // Handle missing department gracefully
+        const userDept = req.user.department ? req.user.department.toUpperCase() : 'GENERAL';
 
         const newQuiz = new Quiz({
             topic: topic.trim(),
@@ -32,6 +52,7 @@ exports.createQuiz = async (req, res) => {
         });
         await newQuiz.save();
 
+        // Create Shadow Event for Certificate
         const certName = `Certified: ${topic.trim()}`;
         const existingEvent = await Event.findOne({ name: certName });
         
@@ -55,18 +76,19 @@ exports.createQuiz = async (req, res) => {
         }
         res.status(201).json(newQuiz);
     } catch (error) {
-        res.status(500).json({ message: "Failed to create quiz: " + error.message });
+        console.error("Create Quiz Error:", error);
+        res.status(500).json({ message: "Failed to create quiz" });
     }
 };
 
 // --- 2. GET QUIZZES ---
 exports.getAvailableQuizzes = async (req, res) => {
     try {
-        const studentDept = req.user.department ? req.user.department.toUpperCase() : 'GENERAL';
-        const quizzes = await Quiz.find({ 
-            isActive: true,
-            $or: [{ department: studentDept }, { department: 'All' }, { department: 'College' }]
-        }).populate('createdBy', 'name');
+        const dept = req.user.department ? req.user.department.toUpperCase() : 'GENERAL';
+        const query = { isActive: true };
+        query.$or = [{ department: dept }, { department: 'All' }, { department: 'College' }];
+        
+        const quizzes = await Quiz.find(query).populate('createdBy', 'name');
 
         const quizzesWithStatus = await Promise.all(quizzes.map(async (quiz) => {
             const certName = `Certified: ${quiz.topic}`;
@@ -112,18 +134,17 @@ exports.getQuizDetails = async (req, res) => {
     }
 };
 
-// --- 4. NEXT QUESTION (AI) ---
+// --- 4. NEXT QUESTION (With Failsafe) ---
 exports.nextQuestion = async (req, res) => {
     const { quizId, history } = req.body;
+    let difficulty = 'Medium';
 
     try {
         const quiz = await Quiz.findById(quizId);
         if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
-        const currentQIndex = history ? history.length : 0;
-        
         // Difficulty Logic
-        let difficulty = 'Medium';
+        const currentQIndex = history ? history.length : 0;
         const phase1Limit = Math.floor(quiz.totalQuestions * 0.33);
 
         if (currentQIndex < phase1Limit) {
@@ -138,42 +159,43 @@ exports.nextQuestion = async (req, res) => {
 
         const previousQuestionsText = history ? history.map(h => h.questionText).join(" | ") : "";
 
-        const prompt = `
-            Generate ONE multiple-choice question about "${quiz.topic}".
-            Difficulty Level: ${difficulty}.
-            Do NOT repeat: [${previousQuestionsText}].
-            Return JSON: { "question": "text", "options": ["A","B","C","D"], "correctAnswer": "text", "explanation": "text" }
-        `;
-
-        // --- UPDATED MODEL NAME: gemini-1.5-flash ---
-        // This alias always points to the latest stable version
-        const response = await genAI.models.generateContent({
-            model: 'gemini-1.5-flash', 
-            contents: prompt,
-            config: { responseMimeType: 'application/json' }
-        });
-
-        const responseText = typeof response.text === 'function' ? response.text() : response.text;
-        let questionData;
+        // --- AI GENERATION ---
         try {
-             const cleaned = cleanJSON(responseText);
-             questionData = JSON.parse(cleaned);
-        } catch (e) {
-             console.error("JSON Parse Error:", e); 
-             questionData = {
-                 question: "AI is calibrating...",
-                 options: ["Continue"],
-                 correctAnswer: "Continue",
-                 explanation: "AI returned invalid data."
-             };
+            const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+            
+            const prompt = `
+                Generate ONE multiple-choice question about "${quiz.topic}".
+                Difficulty Level: ${difficulty}.
+                Do NOT repeat these concepts: [${previousQuestionsText}].
+                Return ONLY valid JSON in this format:
+                {
+                    "question": "Text",
+                    "options": ["A", "B", "C", "D"],
+                    "correctAnswer": "Exact text of correct option",
+                    "explanation": "Reason"
+                }
+            `;
+
+            const result = await model.generateContent(prompt);
+            const response = await result.response;
+            const text = response.text();
+            
+            const cleaned = cleanJSON(text);
+            const questionData = JSON.parse(cleaned);
+            
+            questionData.difficulty = difficulty;
+            return res.json(questionData);
+
+        } catch (aiError) {
+            console.error("AI Generation Failed:", aiError.message);
+            // Return Fallback Question instead of crashing
+            return res.json(getFallbackQuestion(quiz.topic, difficulty));
         }
 
-        questionData.difficulty = difficulty;
-        res.json(questionData);
-
     } catch (error) {
-        console.error("AI Generation Error:", error.message);
-        res.status(500).json({ message: "AI Service Error" });
+        console.error("Critical Server Error:", error);
+        // Even in a critical error, try to keep the user moving
+        res.json(getFallbackQuestion("Unknown Topic", difficulty));
     }
 };
 
