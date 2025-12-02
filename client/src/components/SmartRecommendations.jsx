@@ -1,119 +1,203 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import api from '../api';
+// In server/services/recommendation.service.js
+const natural = require('natural');
+const Certificate = require('../models/certificate.model');
+const Event = require('../models/event.model');
+const Quiz = require('../models/quiz.model');
+// --- IMPORT THE ML MODEL ---
+const MLModel = require('./ml.service'); 
 
-// UI
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { Skeleton } from "@/components/ui/skeleton";
-import { 
-    Sparkles, TrendingUp, Target, Calendar, 
-    BrainCircuit, Award, ArrowRight, Lightbulb 
-} from "lucide-react";
-
-const SmartRecommendations = () => {
-    const [data, setData] = useState(null);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        const fetchRecs = async () => {
-            try {
-                const res = await api.get('/recommendations/me');
-                setData(res.data);
-            } catch (error) {
-                console.error('Failed to load recommendations');
-            } finally {
-                setLoading(false);
-            }
+class RecommendationEngine {
+    constructor() {
+        // Knowledge Graph: Defines prerequisites and next steps for specific skills
+        // This is used for "Immediate Next Step" recommendations (e.g. HTML -> CSS)
+        this.skillGraph = {
+            'HTML': ['CSS', 'JavaScript', 'Web Development'],
+            'CSS': ['JavaScript', 'Tailwind', 'Design'],
+            'JavaScript': ['React', 'Node.js', 'TypeScript', 'Vue.js', 'Web Development'],
+            'Python': ['Django', 'Flask', 'Machine Learning', 'Data Science', 'AI'],
+            'React': ['Redux', 'Next.js', 'GraphQL', 'Frontend Architecture'],
+            'Node.js': ['Express', 'MongoDB', 'PostgreSQL', 'Backend Architecture'],
+            'Machine Learning': ['Deep Learning', 'Computer Vision', 'NLP', 'TensorFlow'],
+            'Data Science': ['Pandas', 'NumPy', 'Matplotlib', 'Big Data'],
+            'Blockchain': ['Smart Contracts', 'Solidity', 'Ethereum', 'Web3', 'DeFi'],
+            'Solidity': ['Hardhat', 'Security Auditing', 'DApps'],
+            'Web Development': ['Frontend', 'Backend', 'Full Stack']
         };
-        fetchRecs();
-    }, []);
-
-    if (loading) return <Skeleton className="h-48 w-full rounded-xl" />;
-    
-    if (!data || (data.recommendations.length === 0 && data.level === 'Beginner')) {
-        return (
-            <Card className="border-l-4 border-l-blue-500 bg-blue-50/50 dark:bg-blue-950/10">
-                <CardContent className="flex flex-col items-center text-center p-6">
-                    <Lightbulb className="h-8 w-8 text-blue-500 mb-2" />
-                    <h3 className="font-bold text-lg">Start Your Journey</h3>
-                    <p className="text-sm text-muted-foreground mb-4">Complete your first quiz or event to unlock AI career paths.</p>
-                    <Link to="/browse-events">
-                        <Button variant="outline">Browse Events</Button>
-                    </Link>
-                </CardContent>
-            </Card>
-        );
     }
 
-    return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+    /**
+     * Main function to get personalized recommendations
+     */
+    async getRecommendations(studentEmail) {
+        try {
+            // 1. Fetch student's history
+            const certificates = await Certificate.find({ 
+                studentEmail: studentEmail.toLowerCase() 
+            });
+
+            // 2. Extract raw skills from certificate names
+            const skills = this.extractSkills(certificates);
             
-            {/* 1. CAREER PATH CARD */}
-            <Card className="lg:col-span-1 border-t-4 border-t-purple-500 bg-gradient-to-b from-purple-50/50 to-transparent dark:from-purple-950/10">
-                <CardHeader>
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <Target className="h-5 w-5 text-purple-600" />
-                            <CardTitle className="text-base">Career Trajectory</CardTitle>
-                        </div>
-                        <Badge variant="secondary" className="text-xs">{data.level}</Badge>
-                    </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div>
-                        <div className="flex justify-between text-sm mb-1">
-                            <span className="font-semibold">{data.careerPath.path}</span>
-                            <span className="text-purple-600 font-mono">{data.careerPath.completion}%</span>
-                        </div>
-                        <Progress value={data.careerPath.completion} className="h-2" />
-                    </div>
-                    
-                    <div className="space-y-2">
-                        <p className="text-xs font-semibold text-muted-foreground uppercase">Skills Acquired</p>
-                        <div className="flex flex-wrap gap-1">
-                            {data.currentSkills.slice(0, 5).map(skill => (
-                                <Badge key={skill} variant="outline" className="bg-background text-[10px]">{skill}</Badge>
-                            ))}
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
+            // 3. Determine Skill Level based on count
+            const skillLevel = this.calculateSkillLevel(certificates.length);
+            
+            // 4. GRAPH LOGIC: Find immediate next skills
+            const nextSkills = this.predictNextSkills(skills);
 
-            {/* 2. RECOMMENDATIONS LIST */}
-            <Card className="lg:col-span-2">
-                <CardHeader>
-                    <div className="flex items-center gap-2">
-                        <Sparkles className="h-5 w-5 text-yellow-500 fill-yellow-500" />
-                        <CardTitle className="text-base">Recommended Next Steps</CardTitle>
-                    </div>
-                    <CardDescription>AI-curated activities to boost your {data.careerPath.path} path.</CardDescription>
-                </CardHeader>
-                <CardContent className="grid gap-4">
-                    {data.recommendations.map((rec, i) => (
-                        <div key={i} className="flex items-start justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors group">
-                            <div className="flex gap-3">
-                                <div className={`p-2 rounded-md ${rec.type === 'quiz' ? 'bg-indigo-100 text-indigo-600' : 'bg-green-100 text-green-600'}`}>
-                                    {rec.type === 'quiz' ? <BrainCircuit className="h-5 w-5" /> : <Calendar className="h-5 w-5" />}
-                                </div>
-                                <div>
-                                    <h4 className="font-semibold text-sm">{rec.title}</h4>
-                                    <p className="text-xs text-muted-foreground line-clamp-1">{rec.reason}</p>
-                                </div>
-                            </div>
-                            <Link to={rec.type === 'quiz' ? `/take-quiz/${rec.id}` : '/browse-events'}>
-                                <Button size="sm" variant="ghost" className="group-hover:translate-x-1 transition-transform">
-                                    Start <ArrowRight className="ml-1 h-3 w-3" />
-                                </Button>
-                            </Link>
-                        </div>
-                    ))}
-                </CardContent>
-            </Card>
-        </div>
-    );
-};
+            // 5. ML LOGIC: Predict long-term career path
+            // This uses the TF-IDF Vector model we built
+            const careerPaths = MLModel.predict(certificates);
 
-export default SmartRecommendations;
+            // 6. Build actionable recommendations (Quizzes/Events)
+            const recommendations = await this.buildRecommendations(
+                nextSkills, 
+                skillLevel,
+                studentEmail
+            );
+
+            // 7. Rank them by relevance
+            const rankedRecommendations = this.rankRecommendations(recommendations, skills);
+
+            return {
+                currentSkills: skills,
+                level: skillLevel,
+                recommendations: rankedRecommendations.slice(0, 5), // Top 5 actions
+                careerPaths: careerPaths // Top 3 ML predictions
+            };
+
+        } catch (error) {
+            console.error('Recommendation Error:', error);
+            // Fallback to safe default if ML fails
+            return this.getBeginnerRecommendations();
+        }
+    }
+
+    /**
+     * Extract skills from certificate titles
+     */
+    extractSkills(certificates) {
+        const skillSet = new Set();
+        
+        certificates.forEach(cert => {
+            const text = `${cert.eventName} ${cert.studentName}`.toLowerCase();
+            
+            // Check against all known skills in our graph
+            Object.keys(this.skillGraph).forEach(skill => {
+                if (text.includes(skill.toLowerCase())) {
+                    skillSet.add(skill);
+                }
+            });
+
+            // Synonyms / Keywords
+            if (text.includes('html')) skillSet.add('HTML');
+            if (text.includes('css')) skillSet.add('CSS');
+            if (text.includes('js') || text.includes('javascript')) skillSet.add('JavaScript');
+            if (text.includes('mca') || text.includes('computer application')) skillSet.add('Computer Science');
+        });
+
+        return Array.from(skillSet);
+    }
+
+    /**
+     * Simple logic for "Level" badge
+     */
+    calculateSkillLevel(certCount) {
+        if (certCount >= 15) return 'Expert';
+        if (certCount >= 8) return 'Advanced';
+        if (certCount >= 3) return 'Intermediate';
+        return 'Beginner';
+    }
+
+    /**
+     * Graph Traversal: If I have X, suggest Y
+     */
+    predictNextSkills(currentSkills) {
+        const nextSkills = new Set();
+
+        currentSkills.forEach(skill => {
+            if (this.skillGraph[skill]) {
+                this.skillGraph[skill].forEach(next => {
+                    // Suggest if they don't have it yet
+                    if (!currentSkills.includes(next)) {
+                        nextSkills.add(next);
+                    }
+                });
+            }
+        });
+
+        // Cold Start: Suggest popular entry points
+        if (nextSkills.size === 0) {
+            ['JavaScript', 'Python', 'Blockchain'].forEach(s => nextSkills.add(s));
+        }
+
+        return Array.from(nextSkills);
+    }
+
+    /**
+     * Database Search: Find content matching the suggested skills
+     */
+    async buildRecommendations(nextSkills, level, studentEmail) {
+        const recommendations = [];
+        
+        // Create fuzzy regex for matching
+        const regexList = nextSkills.map(s => new RegExp(s, 'i'));
+
+        if (regexList.length === 0) return [];
+
+        // 1. Find Quizzes
+        const quizzes = await Quiz.find({ 
+            isActive: true,
+            topic: { $in: regexList }
+        }).limit(3);
+
+        quizzes.forEach(quiz => {
+            recommendations.push({
+                type: 'quiz',
+                title: quiz.topic,
+                description: `Assess your ${quiz.topic} skills`,
+                difficulty: 'Adaptive',
+                reason: `Recommended next step`,
+                id: quiz._id,
+                score: 0.8
+            });
+        });
+
+        // 2. Find Events
+        const events = await Event.find({
+            date: { $gte: new Date() },
+            name: { $in: regexList }
+        }).limit(3);
+
+        events.forEach(event => {
+            recommendations.push({
+                type: 'event',
+                title: event.name,
+                description: event.description || 'Upcoming Workshop',
+                date: event.date,
+                reason: `Live learning session`,
+                id: event._id,
+                score: 0.9
+            });
+        });
+
+        return recommendations;
+    }
+
+    rankRecommendations(recommendations, currentSkills) {
+        return recommendations.sort((a, b) => b.score - a.score);
+    }
+
+    getBeginnerRecommendations() {
+        return {
+            currentSkills: [],
+            level: 'Beginner',
+            recommendations: [],
+            careerPaths: [
+                { path: 'Full-Stack Developer', completion: 0 },
+                { path: 'Blockchain Engineer', completion: 0 }
+            ]
+        };
+    }
+}
+
+module.exports = new RecommendationEngine();

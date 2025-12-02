@@ -3,150 +3,143 @@ const mongoose = require('mongoose');
 const User = require('./models/user.model');
 const Event = require('./models/event.model');
 const Certificate = require('./models/certificate.model');
+const SystemLog = require('./models/systemLog.model');
+const Quiz = require('./models/quiz.model');
+const StudentRoster = require('./models/studentRoster.model');
+const { nanoid } = require('nanoid');
 require('dotenv').config();
-const SystemLog = require('./models/systemLog.model'); // <-- IMPORT
 
-const departments = ['CSE', 'ECE', 'MCA', 'ISE', 'MECH', 'CIVIL'];
-const eventTypes = ['Workshop', 'Seminar', 'Hackathon', 'Bootcamp', 'Symposium'];
+const DEPARTMENTS = ['MCA', 'CSE', 'ECE', 'ISE', 'MECH', 'CIVIL'];
 
-// Helper to get random item
+// --- 1. STRUCTURED CURRICULUM FOR RECOMMENDATION TESTING ---
+const CURRICULUM = [
+    // Path: Full-Stack Developer
+    { topic: "HTML & CSS Basics", category: "Web Development", level: "Beginner" },
+    { topic: "JavaScript Fundamentals", category: "Web Development", level: "Beginner" },
+    { topic: "React.js Hooks", category: "Web Development", level: "Intermediate" },
+    { topic: "Node.js Backend Architecture", category: "Web Development", level: "Advanced" },
+    
+    // Path: Data Scientist
+    { topic: "Python for Beginners", category: "Data Science", level: "Beginner" },
+    { topic: "Data Analysis with Pandas", category: "Data Science", level: "Intermediate" },
+    { topic: "Machine Learning Algorithms", category: "Data Science", level: "Advanced" },
+    
+    // Path: Blockchain Developer
+    { topic: "Blockchain Fundamentals", category: "Blockchain", level: "Beginner" },
+    { topic: "Smart Contracts with Solidity", category: "Blockchain", level: "Intermediate" },
+    { topic: "Web3 Security", category: "Blockchain", level: "Advanced" }
+];
+
+// --- 2. UPCOMING EVENTS (Recommendations) ---
+const FUTURE_EVENTS = [
+    { name: "Full-Stack Bootcamp 2025", desc: "Master React and Node.js in this intensive workshop.", topic: "Web Development" },
+    { name: "AI & Data Science Summit", desc: "Learn the future of AI with Python and TensorFlow.", topic: "Data Science" },
+    { name: "Ethereum Developer Conference", desc: "Build decentralized apps on Web3.", topic: "Blockchain" },
+    { name: "Advanced React Workshop", desc: "Deep dive into performance and state management.", topic: "React" }
+];
+
 const random = (arr) => arr[Math.floor(Math.random() * arr.length)];
-
-// Helper to generate a date in the past (for trends)
-const getRandomDate = (start, end) => {
-    return new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
-};
+const randomDate = (start, end) => new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
 
 const seedDatabase = async () => {
     try {
+        console.log("🌱 Connecting to MongoDB...");
         await mongoose.connect(process.env.MONGO_URI);
-        console.log("🌱 Connected to MongoDB...");
+        console.log("✅ Connected.");
 
-        // 1. Create Dummy Students
-        console.log("Creating 50 Dummy Students...");
-        const students = [];
-        for (let i = 1; i <= 50; i++) {
-            const dept = random(departments);
-            // Check if exists to avoid duplicates on re-runs
-            let student = await User.findOne({ email: `student${i}@test.com` });
-            
-            if (!student) {
-                student = await User.create({
-                    name: `Test Student ${i}`,
-                    email: `student${i}@test.com`,
-                    password: 'password123', // Dummy password
-                    role: 'Student',
-                    department: dept,
-                    usn: `1KS24${dept}${String(i).padStart(3, '0')}`,
-                    isVerified: true
-                });
-            }
-            students.push(student);
+        // --- OPTIONAL: CLEANUP ---
+        // Uncomment to start fresh (Recommended for testing recommendations)
+        // await Quiz.deleteMany({});
+        // await Event.deleteMany({});
+        // console.log("🧹 Cleaned old Quizzes and Events.");
+
+        // 1. Find Creator (Faculty/Admin)
+        let creator = await User.findOne({ role: { $in: ['Faculty', 'SuperAdmin'] } });
+        if (!creator) {
+            console.log("⚠️ No Faculty/Admin found. Creating dummy admin...");
+            creator = await User.create({
+                name: "System Admin",
+                email: "admin@seed.com",
+                password: "password123",
+                role: "SuperAdmin",
+                department: "MCA",
+                isVerified: true
+            });
         }
 
-        // 2. Create Dummy Events (Spread over last 12 months)
-        console.log("Creating 12 Past Events...");
-        const events = [];
-        const today = new Date();
-        const lastYear = new Date(new Date().setFullYear(today.getFullYear() - 1));
+        // 2. Seed Quizzes (The Learning Path)
+        console.log("🧠 Seeding Curriculum Quizzes...");
+        for (const item of CURRICULUM) {
+            const existing = await Quiz.findOne({ topic: item.topic });
+            if (!existing) {
+                await Quiz.create({
+                    topic: item.topic,
+                    description: `Test your skills in ${item.topic}. Level: ${item.level}`,
+                    totalQuestions: 5, // Short for testing
+                    passingScore: 60,
+                    createdBy: creator._id,
+                    department: "MCA", // Default to MCA so you can see them
+                    isActive: true
+                });
+                console.log(`   -> Created Quiz: ${item.topic}`);
+            }
+        }
 
-        for (let i = 1; i <= 12; i++) {
-            const eventDate = getRandomDate(lastYear, today);
-            const type = random(eventTypes);
-            
-            let event = await Event.findOne({ name: `Test ${type} ${i}` });
-            if (!event) {
-                event = await Event.create({
-                    name: `Test ${type} ${i}`,
-                    date: eventDate,
-                    description: `A dummy description for test event ${i}`,
-                    createdBy: students[0]._id, // Just assign to first user for safety (or admin id if you have it)
+        // 3. Seed Future Events (The Recommendations)
+        console.log("📅 Seeding Future Events...");
+        const nextMonth = new Date();
+        nextMonth.setDate(nextMonth.getDate() + 30);
+        
+        for (const item of FUTURE_EVENTS) {
+            const existing = await Event.findOne({ name: item.name });
+            if (!existing) {
+                await Event.create({
+                    name: item.name,
+                    date: nextMonth, // Future date
+                    description: item.desc,
+                    createdBy: creator._id,
+                    department: "MCA",
+                    isPublic: true,
+                    certificatesIssued: false,
                     certificateConfig: {
                         collegeName: "K. S. Institute of Technology",
-                        headerDepartment: `Dept of ${random(departments)}`,
-                        certificateTitle: "CERTIFICATE OF ACHIEVEMENT"
-                    },
-                    certificatesIssued: true
+                        headerDepartment: "DEPARTMENT OF MCA",
+                        certificateTitle: "CERTIFICATE OF PARTICIPATION",
+                        eventType: "Workshop"
+                    }
                 });
+                console.log(`   -> Created Event: ${item.name}`);
             }
-            events.push(event);
         }
 
-        // 3. Issue Certificates (The Data for Graphs)
-        console.log("Issuing ~150 Certificates...");
-        // We explicitly set 'createdAt' to match the event date so the Trend Chart works
+        // 4. Seed Past Events (For Analytics Graphs)
+        console.log("📊 Seeding Past Data for Analytics...");
+        const today = new Date();
+        const lastYear = new Date(new Date().setFullYear(today.getFullYear() - 1));
         
-        for (const event of events) {
-            // Pick 10-15 random students for each event
-            const attendeeCount = Math.floor(Math.random() * 6) + 10; 
-            
-            for (let k = 0; k < attendeeCount; k++) {
-                const student = random(students);
-                const certId = `CERT-TEST-${Math.floor(Math.random() * 1000000)}`;
-                
-                // Check duplicate
-                const exists = await Certificate.findOne({ certificateId: certId });
-                if (exists) continue;
-
-                const cert = new Certificate({
-                    certificateId: certId,
-                    tokenId: Math.floor(Math.random() * 1000), // Fake ID
-                    certificateHash: "0x" + Math.floor(Math.random()*1e16).toString(16), // Fake hash
-                    transactionHash: "0x" + Math.floor(Math.random()*1e16).toString(16), // Fake tx
-                    studentName: student.name,
-                    studentEmail: student.email,
-                    eventName: event.name,
-                    eventDate: event.date,
-                    issuedBy: students[0]._id, // Dummy ID
-                    verificationUrl: `/verify/${certId}`
-                });
-
-                // MAGIC: Overwrite the timestamp so it shows up in past months on the chart
-                cert.createdAt = event.date; 
-                
-                await cert.save();
-            }
+        for (let i = 1; i <= 10; i++) {
+            const pastDate = randomDate(lastYear, today);
+            await Event.create({
+                name: `Past Workshop ${i}`,
+                date: pastDate,
+                description: "Legacy event",
+                createdBy: creator._id,
+                department: random(DEPARTMENTS),
+                isPublic: false,
+                certificatesIssued: true
+            });
         }
 
-        // ... inside seedDatabase function ...
-
-    // 4. Create Dummy Logs (So the dashboard isn't empty)
-    console.log("Creating Activity Logs...");
-    await SystemLog.deleteMany({}); // Clear old logs
-
-    const actions = [
-        { action: "CERTIFICATE_ISSUED", desc: "Issued NFT to Test Student 1 for Workshop" },
-        { action: "EVENT_CREATED", desc: "Created new event: AI Bootcamp" },
-        { action: "CERTIFICATE_REVOKED", desc: "Revoked certificate ID: CERT-12345" },
-        { action: "BULK_ISSUE", desc: "Issued 15 NFTs for event: Hackathon 2025" }
-    ];
-
-    for (let i = 0; i < 10; i++) {
-        const randomAction = random(actions);
-        // Create logs with random times in the last 24 hours
-        const logTime = new Date(Date.now() - Math.floor(Math.random() * 86400000));
-
-        await SystemLog.create({
-            action: randomAction.action,
-            description: randomAction.desc,
-            adminName: "Super Admin",
-            adminId: students[0]._id, // Dummy ID
-            timestamp: logTime
-        });
-    }
-    // ...
-
-        console.log("✅ Database Seeded Successfully!");
-        console.log("   - Students: 50");
-        console.log("   - Events: 12");
-        console.log("   - Certificates: ~150");
-        console.log("👉 Go check your Analytics Dashboard!");
+        console.log("\n✅ SEEDING COMPLETE!");
+        console.log("   You now have a structured curriculum to test the Recommendation Engine.");
+        console.log("   1. Take 'HTML & CSS Basics' -> Expect 'Web Development' suggestions.");
+        console.log("   2. Take 'Python for Beginners' -> Expect 'Data Science' suggestions.");
 
     } catch (error) {
-        console.error("Seeding Error:", error);
+        console.error("❌ Seeding Error:", error);
     } finally {
         await mongoose.disconnect();
-        console.log("Disconnected.");
+        process.exit();
     }
 };
 
