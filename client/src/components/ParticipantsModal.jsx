@@ -65,7 +65,7 @@ function ParticipantsModal({ event, onClose }) {
     return (
         // Modal Backdrop
         <div 
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-muted/40 bg-opacity-50"
             onClick={onClose}
         >
             {/* Modal Content */}
