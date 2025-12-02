@@ -155,3 +155,45 @@ exports.generateCertificatePDF = async (certificate, res) => {
 
     doc.end();
 };
+
+
+// ... (keep all existing code and imports) ...
+
+// --- NEW: Generate PDF as Buffer (For IPFS Upload) ---
+exports.createPDFBuffer = async (certificate) => {
+    return new Promise(async (resolve, reject) => {
+        try {
+            const doc = new PDFDocument({ layout: 'landscape', size: 'A4', margin: 0 });
+            const buffers = [];
+
+            // Capture the PDF data in an array
+            doc.on('data', buffers.push.bind(buffers));
+            doc.on('end', () => {
+                const pdfData = Buffer.concat(buffers);
+                resolve(pdfData);
+            });
+
+            // --- COPY DRAWING LOGIC HERE ---
+            // Note: Ideally, we refactor the drawing code into a separate 'drawCertificate(doc, cert)' function
+            // to reuse it. For now, to keep it simple, we will use a simplified drawing logic 
+            // just for the IPFS backup, or you can copy-paste the full logic from generateCertificatePDF.
+            
+            // Simplified Drawing for IPFS Backup:
+            const W = doc.page.width;
+            doc.rect(0, 0, W, doc.page.height).fill('#fff');
+            doc.fontSize(30).fillColor('black').text(certificate.eventName, 0, 200, { align: 'center' });
+            doc.fontSize(20).text(`Awarded to ${certificate.studentName}`, { align: 'center' });
+            doc.fontSize(15).text(`ID: ${certificate.certificateId}`, { align: 'center' });
+            
+            // Add QR Code
+            const qrLink = `https://final-project-wheat-mu-84.vercel.app/verify/${certificate.certificateId}`;
+            const qrData = await QRCode.toDataURL(qrLink);
+            doc.image(qrData, 50, 450, { width: 80 });
+
+            doc.end();
+
+        } catch (error) {
+            reject(error);
+        }
+    });
+};

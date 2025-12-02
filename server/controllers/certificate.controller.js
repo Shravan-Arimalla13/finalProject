@@ -8,6 +8,8 @@ const { mintNFT, isHashValid, revokeByHash } = require('../utils/blockchain');
 const { generateCertificatePDF } = require('../utils/certificateGenerator');
 const { sendCertificateIssued } = require('../utils/mailer'); 
 const { logActivity } = require('../utils/logger'); // <-- RESTORED THIS IMPORT
+const { createPDFBuffer } = require('../utils/certificateGenerator'); // <-- NEW
+const ipfsService = require('../services/ipfs.service'); // <-- NEW
 
 // --- ISSUE SINGLE CERTIFICATE ---
 exports.issueSingleCertificate = async (req, res) => {
@@ -33,14 +35,39 @@ exports.issueSingleCertificate = async (req, res) => {
         const certificateHash = crypto.createHash('sha256').update(hashData).digest('hex');
         const { transactionHash, tokenId } = await mintNFT(student.walletAddress, certificateHash);
 
+        // --- NEW: IPFS UPLOAD ---
+        console.log("Generating PDF for IPFS...");
+
+        // Generate Buffer
+        const pdfBuffer = await createPDFBuffer(certDataForPDF);
+        
+        // Upload to Pinata
+        const ipfsResult = await ipfsService.uploadCertificate(pdfBuffer, certDataForPDF.certificateId);
+        // ------------------------
+
+        
         // 2. Save to DB
         const certificateId = `CERT-${nanoid(10)}`;
         const newCert = new Certificate({
-            certificateId, tokenId, certificateHash, transactionHash,
-            studentName, studentEmail: normalizedEmail, eventName, eventDate,
-            issuedBy: issuerId, verificationUrl: `/verify/${certificateId}`
+            certificateId: certDataForPDF.certificateId, // Use the ID we generated above
+            tokenId,
+            certificateHash,
+            transactionHash,
+            studentName,
+            studentEmail: normalizedEmail,
+            eventName,
+            eventDate,
+            issuedBy: issuerId,
+            verificationUrl: `/verify/${certDataForPDF.certificateId}`,
+            
+            // SAVE IPFS DATA
+            ipfsHash: ipfsResult?.hash,
+            ipfsUrl: ipfsResult?.url
         });
         await newCert.save();
+
+        
+        
 
         // 3. Send Email
         await sendCertificateIssued(normalizedEmail, studentName, eventName, certificateId);

@@ -16,6 +16,7 @@
     "@google/genai": "^1.30.0",
     "@google/generative-ai": "^0.24.1",
     "@openzeppelin/contracts": "^5.4.0",
+    "@pinata/sdk": "^2.1.0",
     "bcryptjs": "^3.0.3",
     "compromise": "^14.14.4",
     "cors": "^2.8.5",
