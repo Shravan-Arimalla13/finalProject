@@ -8,11 +8,11 @@ const certificateSchema = new mongoose.Schema({
         required: true,
         unique: true
     },
-    tokenId: { // --- NEW: The NFT's ID on the blockchain ---
-        type: Number, 
+    tokenId: { 
+        type: String, // <--- CHANGED TO STRING (Fixes "Cast to Number" error)
         required: true
     },
-    certificateHash: { // --- NEW: The 64-char hash ---
+    certificateHash: { // The 64-char hash
         type: String,
         required: true,
         unique: true
@@ -45,10 +45,10 @@ const certificateSchema = new mongoose.Schema({
         type: String,
         required: true
     },
-    // --- ADD THIS NEW FIELD ---
+    // Track how many times it has been scanned
     scanCount: {
         type: Number,
-        default: 0 // Starts at 0
+        default: 0
     }
 }, { timestamps: true });
 
