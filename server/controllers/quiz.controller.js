@@ -1,7 +1,5 @@
 // In server/controllers/quiz.controller.js
-const { GoogleGenAI } = require("@google/genai"); // Or @google/generative-ai depending on installed pkg
-// If the above line fails, swap to: const { GoogleGenerativeAI } = require("@google/generative-ai");
-
+const { GoogleGenAI } = require("@google/genai");
 const Quiz = require('../models/quiz.model');
 const Certificate = require('../models/certificate.model');
 const Event = require('../models/event.model');
@@ -11,23 +9,8 @@ const crypto = require('crypto');
 const { mintNFT } = require('../utils/blockchain');
 const { sendCertificateIssued } = require('../utils/mailer');
 
-// --- CONFIGURATION ---
-// We check which library is installed to initialize correctly
-let genAI;
-try {
-    // Try New SDK
-    const { GoogleGenAI } = require("@google/genai");
-    const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    // Wrap it to match old interface if needed, or use directly
-    genAI = client; 
-} catch (e) {
-    // Fallback to Old SDK (Likely what is installed)
-    const { GoogleGenerativeAI } = require("@google/generative-ai");
-    genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-}
-
-// *** CRITICAL FIX: USE THE STABLE ALIAS ***
-const MODEL_NAME = "gemini-1.5-flash"; 
+// Initialize the client
+const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // Helper to clean AI response
 const cleanJSON = (text) => {
@@ -138,11 +121,14 @@ exports.nextQuestion = async (req, res) => {
         if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
         const currentQIndex = history ? history.length : 0;
+        
+        // Difficulty Logic
         let difficulty = 'Medium';
         const phase1Limit = Math.floor(quiz.totalQuestions * 0.33);
 
-        if (currentQIndex < phase1Limit) { difficulty = 'Easy'; } 
-        else if (history && history.length >= 3) {
+        if (currentQIndex < phase1Limit) {
+            difficulty = 'Easy';
+        } else if (history && history.length >= 3) {
             const recent = history.slice(-3);
             const correctCount = recent.filter(h => h.isCorrect).length;
             if (correctCount === 3) difficulty = 'Hard';
@@ -159,43 +145,35 @@ exports.nextQuestion = async (req, res) => {
             Return JSON: { "question": "text", "options": ["A","B","C","D"], "correctAnswer": "text", "explanation": "text" }
         `;
 
-        // --- CALL AI (Robust Logic for Old/New SDK) ---
-        let text = "";
-        try {
-            // Try New SDK Method first
-            if (genAI.models && genAI.models.generateContent) {
-                const response = await genAI.models.generateContent({
-                    model: MODEL_NAME, contents: prompt, config: { responseMimeType: 'application/json' }
-                });
-                text = response.text ? response.text() : JSON.stringify(response.data);
-            } 
-            // Fallback to Old SDK Method
-            else if (genAI.getGenerativeModel) {
-                const model = genAI.getGenerativeModel({ model: MODEL_NAME });
-                const result = await model.generateContent(prompt);
-                text = result.response.text();
-            }
-        } catch (apiError) {
-            console.error("AI API Error:", apiError.message);
-            throw new Error("AI Service Failed");
-        }
+        // --- UPDATED MODEL NAME: gemini-1.5-flash ---
+        // This alias always points to the latest stable version
+        const response = await genAI.models.generateContent({
+            model: 'gemini-1.5-flash', 
+            contents: prompt,
+            config: { responseMimeType: 'application/json' }
+        });
 
-        // Parse Response
+        const responseText = typeof response.text === 'function' ? response.text() : response.text;
         let questionData;
         try {
-             const cleaned = cleanJSON(text);
+             const cleaned = cleanJSON(responseText);
              questionData = JSON.parse(cleaned);
-        } catch (e) { 
-            console.error("JSON Parse Error:", text);
-            questionData = { question: "Error generating question.", options: ["Skip"], correctAnswer: "Skip", explanation: "AI Error" }; 
+        } catch (e) {
+             console.error("JSON Parse Error:", e); 
+             questionData = {
+                 question: "AI is calibrating...",
+                 options: ["Continue"],
+                 correctAnswer: "Continue",
+                 explanation: "AI returned invalid data."
+             };
         }
-        
+
         questionData.difficulty = difficulty;
         res.json(questionData);
 
     } catch (error) {
-        console.error("Controller Error:", error);
-        res.status(500).json({ message: "AI Error" });
+        console.error("AI Generation Error:", error.message);
+        res.status(500).json({ message: "AI Service Error" });
     }
 };
 
@@ -221,7 +199,7 @@ exports.submitQuiz = async (req, res) => {
         }
 
         let txHash = "PENDING";
-        let tokenId = "PENDING"; // Use String to avoid db crash
+        let tokenId = "PENDING"; 
         
         if (student.walletAddress) {
             try {
