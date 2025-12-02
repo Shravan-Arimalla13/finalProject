@@ -9,9 +9,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
+
 import { Trash2, Search } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert-box";
+import { Badge } from "@/components/ui/badge-item";
+
 // ---
 
 function StudentManagementPage() {

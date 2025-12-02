@@ -22,8 +22,8 @@ import {
     TableRow 
 } from "@/components/ui/table";
 import SmartRecommendations from '../components/SmartRecommendations'; // <-- IMPORT
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert-box";
+import { Badge } from "@/components/ui/badge-item";
 import { Label } from "@/components/ui/label"; // <-- Added missing Label import
 import { 
     MoreHorizontal, 

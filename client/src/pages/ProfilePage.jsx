@@ -5,7 +5,7 @@ import api from '../api';
 
 // UI Imports
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge-item";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"; // Install: npx shadcn@latest add avatar
 import { Trophy, Medal, Star, Share2, Download, ExternalLink, ShieldCheck } from "lucide-react";

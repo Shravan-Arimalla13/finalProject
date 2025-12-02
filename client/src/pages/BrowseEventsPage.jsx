@@ -13,7 +13,7 @@ import {
   CardFooter,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input"; // For Search
-import { Badge } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge-item";
 import { Search, Calendar, User, CheckCircle2, Loader2, Clock } from "lucide-react"; 
 // ----------------------------------
 
