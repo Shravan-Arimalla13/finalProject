@@ -9,55 +9,105 @@ class IPFSService {
             pinataApiKey: process.env.PINATA_API_KEY,
             pinataSecretApiKey: process.env.PINATA_SECRET_KEY
         });
+        
+        // Public gateway for file retrieval
         this.gateway = 'https://gateway.pinata.cloud/ipfs/';
     }
 
     /**
-     * Upload a PDF Buffer to IPFS
+     * Upload PDF buffer to IPFS
      */
-    async uploadCertificate(pdfBuffer, certId) {
+    async uploadCertificate(pdfBuffer, metadata) {
         try {
-            // Convert Buffer to Readable Stream
+            // Test authentication
+            await this.pinata.testAuthentication();
+
+            // Convert buffer to readable stream
             const stream = Readable.from(pdfBuffer);
             
+            // Prepare options with metadata
             const options = {
                 pinataMetadata: {
-                    name: `CERT-${certId}.pdf`
+                    name: `${metadata.certificateId}.pdf`,
+                    keyvalues: {
+                        studentName: metadata.studentName,
+                        eventName: metadata.eventName,
+                        issueDate: new Date(metadata.eventDate).toISOString(),
+                        certificateId: metadata.certificateId
+                    }
                 },
                 pinataOptions: {
-                    cidVersion: 0
+                    cidVersion: 1 
                 }
             };
 
+            // Upload to IPFS
             const result = await this.pinata.pinFileToIPFS(stream, options);
+            
             console.log(`✅ PDF uploaded to IPFS: ${result.IpfsHash}`);
+
+            // --- FIX: Construct URL explicitly ---
+            const finalUrl = `https://gateway.pinata.cloud/ipfs/${result.IpfsHash}`;
             
             return {
-                hash: result.IpfsHash,
-                url: `${this.gateway}${result.IpfsHash}`
+                ipfsHash: result.IpfsHash,
+                ipfsUrl: finalUrl, // Use the variable we just made
+                timestamp: result.Timestamp,
+                size: pdfBuffer.length
             };
+
         } catch (error) {
-            console.error("IPFS Upload Error:", error);
-            return null; // Don't crash if IPFS fails
+            console.error('IPFS Upload Error:', error);
+            // Return null so the controller knows it failed
+            return null; 
         }
     }
 
     /**
-     * Upload Metadata JSON (Standard NFT Metadata)
+     * Upload JSON metadata to IPFS
      */
-    async uploadMetadata(data) {
+    async uploadMetadata(certData) {
         try {
-            const result = await this.pinata.pinJSONToIPFS(data, {
-                pinataMetadata: { name: `META-${data.certificateId}.json` }
-            });
-            return {
-                hash: result.IpfsHash,
-                url: `${this.gateway}${result.IpfsHash}`
+            const metadata = {
+                certificateId: certData.certificateId,
+                studentName: certData.studentName,
+                studentEmail: certData.studentEmail,
+                eventName: certData.eventName,
+                eventDate: certData.eventDate,
+                issuer: certData.issuedBy,
+                blockchainHash: certData.certificateHash,
+                transactionHash: certData.transactionHash,
+                issuedAt: new Date().toISOString()
             };
+
+            const options = {
+                pinataMetadata: {
+                    name: `${certData.certificateId}-metadata.json`
+                }
+            };
+
+            const result = await this.pinata.pinJSONToIPFS(metadata, options);
+
+            console.log(`✅ Metadata uploaded to IPFS: ${result.IpfsHash}`);
+            const finalUrl = `https://gateway.pinata.cloud/ipfs/${result.IpfsHash}`;
+
+            return {
+                ipfsHash: result.IpfsHash,
+                ipfsUrl: finalUrl
+            };
+
         } catch (error) {
-            console.error("IPFS Metadata Error:", error);
+            console.error('IPFS Metadata Upload Error:', error);
             return null;
         }
+    }
+    
+    // Helper to fetch file (if needed)
+    async getFile(ipfsHash) {
+        const url = `${this.gateway}${ipfsHash}`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Failed to fetch from IPFS");
+        return response;
     }
 }
 
