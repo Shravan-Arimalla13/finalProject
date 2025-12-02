@@ -38,6 +38,7 @@ import {
   Mail,
   Upload,
   GraduationCap,
+  Cloud,
   BarChart,
 } from "lucide-react";
 import {
