@@ -5,6 +5,7 @@ import ParticipantsModal from '../components/ParticipantsModal.jsx';
 import SignatureCanvas from 'react-signature-canvas';
 import { useAuth } from '../context/AuthContext.jsx';
 import { TableSkeleton } from '../components/TableSkeleton.jsx'; 
+import AttendanceModal from '../components/AttendanceModal.jsx';
 
 // --- SHADCN IMPORTS ---
 import { Button } from "@/components/ui/button";
@@ -70,6 +71,7 @@ function EventManagementPage() {
     const sigPadRef = useRef({});
 
     const today = new Date().toISOString().split('T')[0];
+    const [attendanceEvent, setAttendanceEvent] = useState(null);
 
     useEffect(() => { fetchEvents(); }, []);
 
@@ -464,6 +466,9 @@ function EventManagementPage() {
                                                                 
                                                                 <DropdownMenuItem onClick={() => copyToClipboard(event)}>Copy Link</DropdownMenuItem>
                                                             </DropdownMenuContent>
+                                                            <DropdownMenuItem onClick={() => setAttendanceEvent(event)}>
+    <MapPin className="mr-2 h-4 w-4" /> View Attendance Report
+</DropdownMenuItem>
                                                         </DropdownMenu>
                                                     </TableCell>
                                                 </TableRow>
@@ -507,7 +512,7 @@ function EventManagementPage() {
                         </div>
                     </DialogContent>
                 </Dialog>
-
+<AttendanceModal event={attendanceEvent} onClose={() => setAttendanceEvent(null)} />
             </div>
         </div>
     );

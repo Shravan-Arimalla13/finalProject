@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import api from "../api";
 import { BrainCircuit } from "lucide-react";
+import { MapPin, Clock } from "lucide-react";
 // --- SHADCN IMPORTS ---
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -264,6 +265,19 @@ const StudentDashboard = ({ user }) => {
       setWalletError(err.response?.data?.message || err.message);
     }
   };
+ const [poaps, setPoaps] = useState([]); // <-- New State
+  // --- FETCH POAPS ---
+    useEffect(() => {
+        const fetchPoaps = async () => {
+            try {
+                const res = await api.get('/poap/my-poaps');
+                setPoaps(res.data);
+            } catch (err) {
+                console.error("Failed to load POAPs");
+            }
+        };
+        fetchPoaps();
+    }, []);
 
   const latestCert = certificates.length > 0 ? certificates[0] : null;
   const otherCerts = certificates.length > 1 ? certificates.slice(1) : [];
@@ -370,6 +384,37 @@ const StudentDashboard = ({ user }) => {
           </div>
         </div>
       )}
+
+                  {/* --- NEW: POAP COLLECTION --- */}
+            {poaps.length > 0 && (
+                <div className="space-y-4">
+                    <h2 className="text-xl font-bold flex items-center">
+                        <MapPin className="h-5 w-5 mr-2 text-pink-500" /> Event Attendance (POAPs)
+                    </h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {poaps.map((poap) => (
+                            <Card key={poap._id} className="bg-slate-50 dark:bg-slate-900 border-l-4 border-l-pink-500">
+                                <CardContent className="p-4">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <h4 className="font-bold text-sm">{poap.eventName}</h4>
+                                        <Badge variant="outline" className="text-[10px] bg-white">POAP</Badge>
+                                    </div>
+                                    <div className="text-xs text-muted-foreground space-y-1">
+                                        <div className="flex items-center gap-1">
+                                            <Clock className="h-3 w-3" /> 
+                                            {new Date(poap.checkInTime).toLocaleString()}
+                                        </div>
+                                        <div className="font-mono text-[10px] truncate bg-muted p-1 rounded">
+                                            Hash: {poap.transactionHash?.substring(0, 10)}...
+                                        </div>
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        ))}
+                    </div>
+                </div>
+            )}
+            {/* ---------------------------- */}
 
       {/* All Certificates */}
       <div className="space-y-4">
