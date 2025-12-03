@@ -1,13 +1,16 @@
-// client/src/pages/POAPCheckIn.jsx
+// In client/src/pages/POAPCheckIn.jsx
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import api from '../api.js'; // Use explicit .js extension for build stability
+import api from '../api.js'; // Explicit .js extension
 
-// --- SHADCN IMPORTS (Using relative paths to be safe) ---
+// --- SHADCN IMPORTS ---
+// Using relative paths to avoid alias issues
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription } from "@/components/ui/alert-box";
-import { Badge } from "@/components/ui/badge-item"; // Use your renamed file
+// FIX: Pointing to the exact files we created earlier. 
+// Assuming they are in client/src/components/ui/
+import { Alert, AlertDescription } from "../components/ui/alert-box.jsx"; 
+import { Badge } from "../components/ui/badge-item.jsx"; 
 import { 
     MapPin, Clock, Loader2, CheckCircle2, 
     AlertTriangle, Navigation, Award 
@@ -139,10 +142,12 @@ const POAPCheckIn = () => {
                 
                 <CardContent className="pt-6 space-y-6">
                     {error && (
-                        <Alert variant="destructive">
-                            <AlertTriangle className="h-4 w-4" />
-                            <AlertDescription>{error}</AlertDescription>
-                        </Alert>
+                        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+                            <span className="flex items-center gap-2">
+                                <AlertTriangle className="h-4 w-4" />
+                                {error}
+                            </span>
+                        </div>
                     )}
                     
                     {event && (
@@ -169,7 +174,7 @@ const POAPCheckIn = () => {
                     <div className="border-t pt-4">
                         <h3 className="font-semibold mb-3 flex items-center gap-2 text-foreground">
                             <Navigation className="h-4 w-4 text-blue-500" />
-                            Step 1: verify Location
+                            Step 1: Verify Location
                         </h3>
                         
                         {!gpsCoords ? (
