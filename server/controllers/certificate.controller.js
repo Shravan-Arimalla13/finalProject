@@ -39,6 +39,7 @@ exports.issueSingleCertificate = async (req, res) => {
         const certificateHash = crypto.createHash('sha256').update(hashData).digest('hex');
         // --- FIX: Normalize Wallet Address in Bulk Loop ---
         const studentWallet = getAddress(student.walletAddress);
+        const { getAddress } = require('ethers/address');
         // 3. Mint NFT
         const { transactionHash, tokenId } = await mintNFT(student.walletAddress, certificateHash);
 
@@ -130,6 +131,7 @@ exports.issueEventCertificates = async (req, res) => {
             }
 // --- FIX: Normalize Wallet Address in Bulk Loop ---
         const studentWallet = getAddress(student.walletAddress);
+        const { getAddress } = require('ethers/address');
             if (await Certificate.findOne({ eventName: event.name, studentEmail: normalizedEmail })) {
                 skippedCount++;
                 continue;
