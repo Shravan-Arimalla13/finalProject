@@ -1,16 +1,17 @@
 // In client/src/pages/POAPCheckIn.jsx
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import api from '../api.js'; // Explicit .js extension
+// Navigate up two levels from pages/POAPCheckIn.jsx to src/api.js
+import api from '../api.js'; 
 
 // --- SHADCN IMPORTS ---
-// Using relative paths to avoid alias issues
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-// FIX: Pointing to the exact files we created earlier. 
-// Assuming they are in client/src/components/ui/
+// Navigate up two levels from pages/ to src/components/ui/
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.jsx";
+import { Button } from "../components/ui/button.jsx";
+// Use the renamed files we created earlier
 import { Alert, AlertDescription } from "../components/ui/alert-box.jsx"; 
 import { Badge } from "../components/ui/badge-item.jsx"; 
+
 import { 
     MapPin, Clock, Loader2, CheckCircle2, 
     AlertTriangle, Navigation, Award 
