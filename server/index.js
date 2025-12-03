@@ -12,23 +12,37 @@ const adminRoutes = require('./routes/admin.routes');
 const authRoutes = require('./routes/auth.routes');
 const verifierRoutes = require('./routes/verifier.routes');
 const quizRoutes = require('./routes/quiz.routes');
-const recommendationRoutes = require('./routes/recommendation.routes');
-const poapRoutes = require('./routes/poap.routes');
 
 const app = express();
-// CRITICAL: Use process.env.PORT or default to 10000 (Render's default)
 const PORT = process.env.PORT || 10000; 
 
-// --- MIDDLEWARE ---
+// --- CORS CONFIGURATION (FIX) ---
+// Render needs to know to allow requests from your Vercel frontend domain.
+const allowedOrigins = [
+    'http://localhost:5173', // For local development testing
+    'https://final-project-wheat-mu-84.vercel.app', // Your Vercel domain 
+    // Add your other Vercel domain if you use both (the-blockchain-based...)
+    'https://the-blockchain-based-skill-credenti.vercel.app'
+];
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// ALLOW ALL CORS (For debugging deployment)
 app.use(cors({
-    origin: '*', 
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or local files)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.indexOf(origin) === -1) {
+            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+            return callback(new Error(msg), false);
+        }
+        return callback(null, true);
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    credentials: true // Allow cookies/sessions to be sent (though we use JWT)
 }));
+
 
 // --- DATABASE CONNECTION ---
 const connectDB = async () => {
@@ -55,8 +69,6 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/verifier', verifierRoutes);
 app.use('/api/quiz', quizRoutes);
-app.use('/api/recommendations', recommendationRoutes);
-app.use('/api/poap', poapRoutes);
 
 // --- START SERVER ---
 app.listen(PORT, '0.0.0.0', () => { // Bind to 0.0.0.0 for Render
