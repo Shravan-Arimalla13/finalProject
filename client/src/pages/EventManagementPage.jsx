@@ -2,10 +2,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../api.js';
 import ParticipantsModal from '../components/ParticipantsModal.jsx';
+import AttendanceModal from '../components/AttendanceModal.jsx'; // Ensure this is imported
 import SignatureCanvas from 'react-signature-canvas';
 import { useAuth } from '../context/AuthContext.jsx';
 import { TableSkeleton } from '../components/TableSkeleton.jsx'; 
-import AttendanceModal from '../components/AttendanceModal.jsx';
 
 // --- SHADCN IMPORTS ---
 import { Button } from "@/components/ui/button";
@@ -22,7 +22,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { MoreHorizontal, Search, PenTool, RefreshCcw, Loader2, QrCode, Copy } from "lucide-react"; 
+// --- FIX: Add MapPin to imports ---
+import { MoreHorizontal, Search, PenTool, RefreshCcw, Loader2, QrCode, Copy, MapPin } from "lucide-react"; 
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,6 +40,7 @@ function EventManagementPage() {
     const [events, setEvents] = useState([]);
     const [isLoadingData, setIsLoadingData] = useState(true);
     const [selectedEvent, setSelectedEvent] = useState(null);
+    const [attendanceEvent, setAttendanceEvent] = useState(null); // State for attendance modal
     const [searchTerm, setSearchTerm] = useState('');
     
     // Issue State
@@ -46,7 +48,7 @@ function EventManagementPage() {
     const [issueMessage, setIssueMessage] = useState({ id: null, text: null });
     const [issueError, setIssueError] = useState({ id: null, text: null });
 
-    // --- QR MODAL STATE (NEW) ---
+    // --- QR MODAL STATE ---
     const [isQROpen, setIsQROpen] = useState(false);
     const [qrData, setQrData] = useState({ img: null, url: '' });
 
@@ -71,7 +73,6 @@ function EventManagementPage() {
     const sigPadRef = useRef({});
 
     const today = new Date().toISOString().split('T')[0];
-    const [attendanceEvent, setAttendanceEvent] = useState(null);
 
     useEffect(() => { fetchEvents(); }, []);
 
@@ -188,21 +189,21 @@ function EventManagementPage() {
     };
 
     const handleViewParticipants = (event) => setSelectedEvent(event);
-    const copyToClipboard = (event) => {
-        const publicUrl = `${window.location.origin}/event/${event._id}`;
-        navigator.clipboard.writeText(publicUrl);
-        alert('Copied!');
-    };
     
-    // --- NEW: GENERATE QR HANDLER ---
     const handleGenerateQR = async (event) => {
         try {
             const res = await api.get(`/poap/event/${event._id}/qr`);
             setQrData({ img: res.data.qrCode, url: res.data.checkInUrl });
-            setIsQROpen(true); // Open the modal
+            setIsQROpen(true); 
         } catch (e) {
             alert("Failed to generate QR code.");
         }
+    };
+
+    const copyToClipboard = (event) => {
+        const publicUrl = `${window.location.origin}/event/${event._id}`;
+        navigator.clipboard.writeText(publicUrl);
+        alert('Copied!');
     };
 
     const filteredEvents = events.filter(event => event.name.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -412,6 +413,7 @@ function EventManagementPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
+                                    {/* --- SKELETON LOADER LOGIC --- */}
                                     {isLoadingData ? (
                                         <TableSkeleton columns={5} rows={5} />
                                     ) : filteredEvents.length === 0 ? (
@@ -459,16 +461,18 @@ function EventManagementPage() {
                                                                 <DropdownMenuLabel>Actions</DropdownMenuLabel>
                                                                 <DropdownMenuItem onClick={() => handleViewParticipants(event)}>View Participants</DropdownMenuItem>
                                                                 
-                                                                {/* --- NEW BUTTON: Show QR Modal --- */}
+                                                                {/* --- NEW BUTTONS --- */}
                                                                 <DropdownMenuItem onClick={() => handleGenerateQR(event)}>
                                                                     <QrCode className="mr-2 h-4 w-4" /> Show Check-In QR
                                                                 </DropdownMenuItem>
-                                                                
+
+                                                                <DropdownMenuItem onClick={() => setAttendanceEvent(event)}>
+                                                                    <MapPin className="mr-2 h-4 w-4" /> View Attendance Report
+                                                                </DropdownMenuItem>
+                                                                {/* ------------------- */}
+
                                                                 <DropdownMenuItem onClick={() => copyToClipboard(event)}>Copy Link</DropdownMenuItem>
                                                             </DropdownMenuContent>
-                                                            <DropdownMenuItem onClick={() => setAttendanceEvent(event)}>
-    <MapPin className="mr-2 h-4 w-4" /> View Attendance Report
-</DropdownMenuItem>
                                                         </DropdownMenu>
                                                     </TableCell>
                                                 </TableRow>
@@ -483,8 +487,8 @@ function EventManagementPage() {
 
                 {/* --- MODALS --- */}
                 <ParticipantsModal event={selectedEvent} onClose={() => setSelectedEvent(null)} />
+                <AttendanceModal event={attendanceEvent} onClose={() => setAttendanceEvent(null)} />
                 
-                {/* --- QR CODE MODAL --- */}
                 <Dialog open={isQROpen} onOpenChange={setIsQROpen}>
                     <DialogContent className="sm:max-w-md text-center">
                         <DialogHeader>
@@ -512,7 +516,7 @@ function EventManagementPage() {
                         </div>
                     </DialogContent>
                 </Dialog>
-<AttendanceModal event={attendanceEvent} onClose={() => setAttendanceEvent(null)} />
+
             </div>
         </div>
     );
