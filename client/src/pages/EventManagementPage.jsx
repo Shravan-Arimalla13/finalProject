@@ -1,10 +1,10 @@
 // In client/src/pages/EventManagementPage.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import api from '../api.js';
-import ParticipantsModal from '../components/ParticipantsModal.jsx';
+import api from '../api.js'; // Explicit .js extension
+import ParticipantsModal from '../components/ParticipantsModal.jsx'; // Explicit .jsx extension
 import SignatureCanvas from 'react-signature-canvas';
-import { useAuth } from '../context/AuthContext.jsx';
-import { TableSkeleton } from '../components/TableSkeleton.jsx'; 
+import { useAuth } from '../context/AuthContext.jsx'; // Explicit .jsx extension
+import { TableSkeleton } from '../components/TableSkeleton.jsx'; // Explicit .jsx extension
 
 // --- SHADCN IMPORTS ---
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { MoreHorizontal, Search, PenTool, RefreshCcw, Loader2, QrCode } from "lucide-react"; // Added QrCode
+import { MoreHorizontal, Search, PenTool, RefreshCcw, Loader2, QrCode } from "lucide-react"; 
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -81,7 +81,7 @@ function EventManagementPage() {
     }, [user]);
 
     const fetchEvents = async () => {
-        setIsLoadingData(true);
+        setIsLoadingData(true); // Start loading
         try {
             const response = await api.get('/events');
             setEvents(response.data);
@@ -96,7 +96,7 @@ function EventManagementPage() {
         } catch (err) { 
             console.error("Failed to fetch events"); 
         } finally {
-            setIsLoadingData(false); 
+            setIsLoadingData(false); // Stop loading
         }
     };
 
@@ -121,8 +121,6 @@ function EventManagementPage() {
             alert("Please fill in the Event Name and Date.");
             return;
         }
-
-        setIsCreating(true); 
 
         const finalDept = formData.headerDepartment === 'OTHER' ? customDeptInput : formData.headerDepartment;
         const finalTitle = formData.certificateTitle === 'OTHER' ? customTitleInput : formData.certificateTitle;
@@ -373,6 +371,7 @@ function EventManagementPage() {
                     </Dialog>
                 </div>
 
+                {/* --- EVENT LIST TABLE --- */}
                 <Card className="shadow-lg">
                     <CardHeader>
                         <CardTitle>Existing Events</CardTitle>
@@ -394,6 +393,7 @@ function EventManagementPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
+                                    {/* --- SKELETON LOADER LOGIC --- */}
                                     {isLoadingData ? (
                                         <TableSkeleton columns={5} rows={5} />
                                     ) : filteredEvents.length === 0 ? (
@@ -440,19 +440,6 @@ function EventManagementPage() {
                                                             <DropdownMenuContent align="end">
                                                                 <DropdownMenuLabel>Actions</DropdownMenuLabel>
                                                                 <DropdownMenuItem onClick={() => handleViewParticipants(event)}>View Participants</DropdownMenuItem>
-                                                                
-                                                                {/* --- NEW BUTTON: Generate QR --- */}
-                                                                <DropdownMenuItem onClick={async () => {
-                                                                    try {
-                                                                        const res = await api.get(`/poap/event/${event._id}/qr`);
-                                                                        window.open(res.data.checkInUrl, '_blank');
-                                                                    } catch (e) {
-                                                                        alert("Failed to generate QR. Are you logged in?");
-                                                                    }
-                                                                }}>
-                                                                    <QrCode className="mr-2 h-4 w-4" /> Show Check-In QR
-                                                                </DropdownMenuItem>
-                                                                
                                                                 <DropdownMenuItem onClick={() => copyToClipboard(event)}>Copy Link</DropdownMenuItem>
                                                             </DropdownMenuContent>
                                                         </DropdownMenu>
