@@ -1,10 +1,10 @@
 // In client/src/pages/EventManagementPage.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import api from '../api.js'; // Explicit .js extension
-import ParticipantsModal from '../components/ParticipantsModal.jsx'; // Explicit .jsx extension
+import api from '../api.js';
+import ParticipantsModal from '../components/ParticipantsModal.jsx';
 import SignatureCanvas from 'react-signature-canvas';
-import { useAuth } from '../context/AuthContext.jsx'; // Explicit .jsx extension
-import { TableSkeleton } from '../components/TableSkeleton.jsx'; // Explicit .jsx extension
+import { useAuth } from '../context/AuthContext.jsx';
+import { TableSkeleton } from '../components/TableSkeleton.jsx'; 
 
 // --- SHADCN IMPORTS ---
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { MoreHorizontal, Search, PenTool, RefreshCcw, Loader2, QrCode } from "lucide-react"; 
+import { MoreHorizontal, Search, PenTool, RefreshCcw, Loader2, QrCode, Copy } from "lucide-react"; 
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,6 +44,10 @@ function EventManagementPage() {
     const [issueLoading, setIssueLoading] = useState(null);
     const [issueMessage, setIssueMessage] = useState({ id: null, text: null });
     const [issueError, setIssueError] = useState({ id: null, text: null });
+
+    // --- QR MODAL STATE (NEW) ---
+    const [isQROpen, setIsQROpen] = useState(false);
+    const [qrData, setQrData] = useState({ img: null, url: '' });
 
     // --- CREATE FORM STATE ---
     const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -81,7 +85,7 @@ function EventManagementPage() {
     }, [user]);
 
     const fetchEvents = async () => {
-        setIsLoadingData(true); // Start loading
+        setIsLoadingData(true);
         try {
             const response = await api.get('/events');
             setEvents(response.data);
@@ -96,7 +100,7 @@ function EventManagementPage() {
         } catch (err) { 
             console.error("Failed to fetch events"); 
         } finally {
-            setIsLoadingData(false); // Stop loading
+            setIsLoadingData(false); 
         }
     };
 
@@ -121,6 +125,8 @@ function EventManagementPage() {
             alert("Please fill in the Event Name and Date.");
             return;
         }
+
+        setIsCreating(true); 
 
         const finalDept = formData.headerDepartment === 'OTHER' ? customDeptInput : formData.headerDepartment;
         const finalTitle = formData.certificateTitle === 'OTHER' ? customTitleInput : formData.certificateTitle;
@@ -184,6 +190,17 @@ function EventManagementPage() {
         const publicUrl = `${window.location.origin}/event/${event._id}`;
         navigator.clipboard.writeText(publicUrl);
         alert('Copied!');
+    };
+    
+    // --- NEW: GENERATE QR HANDLER ---
+    const handleGenerateQR = async (event) => {
+        try {
+            const res = await api.get(`/poap/event/${event._id}/qr`);
+            setQrData({ img: res.data.qrCode, url: res.data.checkInUrl });
+            setIsQROpen(true); // Open the modal
+        } catch (e) {
+            alert("Failed to generate QR code.");
+        }
     };
 
     const filteredEvents = events.filter(event => event.name.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -393,7 +410,6 @@ function EventManagementPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {/* --- SKELETON LOADER LOGIC --- */}
                                     {isLoadingData ? (
                                         <TableSkeleton columns={5} rows={5} />
                                     ) : filteredEvents.length === 0 ? (
@@ -440,6 +456,12 @@ function EventManagementPage() {
                                                             <DropdownMenuContent align="end">
                                                                 <DropdownMenuLabel>Actions</DropdownMenuLabel>
                                                                 <DropdownMenuItem onClick={() => handleViewParticipants(event)}>View Participants</DropdownMenuItem>
+                                                                
+                                                                {/* --- NEW BUTTON: Show QR Modal --- */}
+                                                                <DropdownMenuItem onClick={() => handleGenerateQR(event)}>
+                                                                    <QrCode className="mr-2 h-4 w-4" /> Show Check-In QR
+                                                                </DropdownMenuItem>
+                                                                
                                                                 <DropdownMenuItem onClick={() => copyToClipboard(event)}>Copy Link</DropdownMenuItem>
                                                             </DropdownMenuContent>
                                                         </DropdownMenu>
@@ -453,7 +475,39 @@ function EventManagementPage() {
                         </div>
                     </CardContent>
                 </Card>
+
+                {/* --- MODALS --- */}
                 <ParticipantsModal event={selectedEvent} onClose={() => setSelectedEvent(null)} />
+                
+                {/* --- QR CODE MODAL --- */}
+                <Dialog open={isQROpen} onOpenChange={setIsQROpen}>
+                    <DialogContent className="sm:max-w-md text-center">
+                        <DialogHeader>
+                            <DialogTitle>Event Check-In QR</DialogTitle>
+                            <DialogDescription>Scan to verify attendance and mint POAP.</DialogDescription>
+                        </DialogHeader>
+                        <div className="flex flex-col items-center gap-4 py-4">
+                            {qrData.img ? (
+                                <img src={qrData.img} alt="QR Code" className="w-64 h-64 border rounded-lg p-2 bg-white shadow-sm" />
+                            ) : (
+                                <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                            )}
+                            <div className="w-full">
+                                <Label className="mb-2 block text-left">Check-In Link</Label>
+                                <div className="flex items-center gap-2">
+                                    <Input value={qrData.url} readOnly className="bg-muted text-xs font-mono" />
+                                    <Button size="icon" variant="outline" onClick={() => {
+                                        navigator.clipboard.writeText(qrData.url);
+                                        alert("Copied!");
+                                    }}>
+                                        <Copy className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+
             </div>
         </div>
     );
