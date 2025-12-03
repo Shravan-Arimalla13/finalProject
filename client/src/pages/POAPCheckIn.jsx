@@ -1,6 +1,7 @@
 // In client/src/pages/POAPCheckIn.jsx
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext.jsx';
 // Navigate up two levels from pages/POAPCheckIn.jsx to src/api.js
 import api from '../api.js'; 
 
@@ -21,7 +22,7 @@ import {
 const POAPCheckIn = () => {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
-    
+    const { user, isAuthenticated } = useAuth();
     const [loading, setLoading] = useState(false);
     const [gpsLoading, setGpsLoading] = useState(false);
     const [event, setEvent] = useState(null);
@@ -40,6 +41,27 @@ const POAPCheckIn = () => {
         }
     }, [eventId]);
     
+    // --- ADD THIS CHECK ---
+    if (!isAuthenticated) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-muted/40 p-4">
+                <Card className="max-w-md w-full text-center shadow-lg">
+                    <CardHeader>
+                        <CardTitle>Sign In Required</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <p className="text-muted-foreground">
+                            You must be logged in to claim your attendance badge.
+                        </p>
+                        <Button onClick={() => navigate('/login')} className="w-full">
+                            Go to Login
+                        </Button>
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
+    // ----------------------
     const fetchEvent = async () => {
         try {
             const res = await api.get(`/events/${eventId}`);

@@ -88,15 +88,16 @@ function App() {
           />
           
           {/* --- POAP Route (FIXED: Allow Admins too) --- */}
-          <Route 
+          {/* <Route 
   path="/poap/checkin" 
   element={
     <ProtectedRoute>
       <POAPCheckIn />
     </ProtectedRoute>
   } 
-/>
+/> */}
 
+<Route path="/poap/checkin" element={<POAPCheckIn />} />
           {/* --- Faculty & SuperAdmin Routes --- */}
           <Route 
             path="/events" 
