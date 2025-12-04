@@ -48,7 +48,10 @@ exports.loginUser = async (req, res) => {
                 role: user.role,
                 name: user.name,
                 email: user.email,
-                department: user.department
+                department: user.department,
+                // --- FIX: Use getAddress on the stored wallet before sending ---
+            walletAddress: user.walletAddress ? getAddress(user.walletAddress) : null,
+            usn: user.usn 
             }
         };
 
