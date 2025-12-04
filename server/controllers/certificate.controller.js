@@ -4,7 +4,7 @@ const Event = require('../models/event.model');
 const User = require('../models/user.model');
 const { nanoid } = require('nanoid');
 const crypto = require('crypto');
-const { getAddress } = require('ethers/address');
+
 
 // --- CRITICAL FIX: Import Specific Ethers Utility ---
 // This is the correct way to import getAddress in a Node.js CJS module
