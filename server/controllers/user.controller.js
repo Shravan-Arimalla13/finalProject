@@ -3,7 +3,11 @@ const User = require('../models/user.model');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const StudentRoster = require('../models/studentRoster.model');
-const { getAddress } = require('ethers/address');
+const { getAddress } = require('ethers/address'); // Must be imported
+
+// Helper function to handle USN normalization for consistency
+const normalizeUSN = (usn) => (usn ? usn.toUpperCase() : null);
+const normalizeDept = (dept) => (dept ? dept.toUpperCase() : 'GENERAL');
 
 // --- User Registration (Public) ---
 exports.registerUser = async (req, res) => {
@@ -12,7 +16,6 @@ exports.registerUser = async (req, res) => {
         let user = await User.findOne({ email });
         if (user) return res.status(400).json({ message: 'User already exists' });
 
-        // Default registration is usually Student or requires manual role setting
         user = new User({ name, email, password, role: role || 'Student' });
         
         const salt = await bcrypt.genSalt(10);
@@ -34,7 +37,6 @@ exports.loginUser = async (req, res) => {
         
         if (!user) return res.status(400).json({ message: 'Invalid credentials' });
         
-        // Check verified status
         if (user.isVerified === false) {
              return res.status(403).json({ message: 'Please activate your account via email first.' });
         }
@@ -49,9 +51,9 @@ exports.loginUser = async (req, res) => {
                 name: user.name,
                 email: user.email,
                 department: user.department,
-                // --- FIX: Use getAddress on the stored wallet before sending ---
-            walletAddress: user.walletAddress ? getAddress(user.walletAddress) : null,
-            usn: user.usn 
+                // FIX: Checksum wallet on login only if it exists
+                walletAddress: user.walletAddress ? getAddress(user.walletAddress) : null,
+                usn: user.usn 
             }
         };
 
@@ -85,15 +87,15 @@ exports.getUserProfile = async (req, res) => {
 // --- Admin: Add Student (Updated: Adds to Roster) ---
 exports.addStudent = async (req, res) => {
     try {
-        // 1. ADD 'semester' TO THE DESTRUCTURING
         const { name, email, department, usn, semester } = req.body; 
 
         const emailLower = email.toLowerCase();
-        const usnLower = usn.toLowerCase();
+        const usnUpper = normalizeUSN(usn);
+        const deptUpper = normalizeDept(department);
 
-        // 2. Check if user exists... (this logic is fine)
-        let existingUser = await User.findOne({ $or: [{ email: emailLower }, { usn: usnLower }] });
-        let existingRoster = await StudentRoster.findOne({ $or: [{ email: emailLower }, { usn: usnLower }] });
+        // 1. Check if user exists... 
+        let existingUser = await User.findOne({ $or: [{ email: emailLower }, { usn: usnUpper }] });
+        let existingRoster = await StudentRoster.findOne({ $or: [{ email: emailLower }, { usn: usnUpper }] });
         
         if (existingUser) {
             return res.status(400).json({ message: 'Student is already registered and active.' });
@@ -102,16 +104,15 @@ exports.addStudent = async (req, res) => {
             return res.status(400).json({ message: 'Student is already in the Waiting Room (Roster).' });
         }
 
-        // 3. Add to Waiting Room (StudentRoster)
+        // 2. Add to Waiting Room (StudentRoster)
         const newRosterEntry = new StudentRoster({
             name,
             email: emailLower,
-            // --- FIX: FORCE UPPERCASE ---
-            usn: usn.toUpperCase(),
-            department: department.toUpperCase(),
-              walletAddress: getAddress(usn.toUpperCase()),
-            // ----------------------------
-            semester, // <-- 2. ADD IT HERE
+            // FIX: USN and DEPT are STRINGS. Do NOT run getAddress() on them.
+            usn: usnUpper,
+            department: deptUpper,
+            walletAddress: null, // Wallet is NULL until student connects MetaMask
+            semester, 
             year: new Date().getFullYear() 
         });
 
@@ -120,16 +121,15 @@ exports.addStudent = async (req, res) => {
         res.status(201).json({ message: 'Student added to Roster. They can now activate their account.' });
 
     } catch (error) {
-        console.error(error);
+        console.error('Add Student Error:', error);
         res.status(500).send('Server Error');
     }
 };
+
 // --- Admin: Get All Students ---
 exports.getAllStudents = async (req, res) => {
     try {
-        // If SuperAdmin, show all. If Faculty, show only their department.
         const query = { role: 'Student' };
-        
         if (req.user.role === 'Faculty') {
             query.department = req.user.department;
         }
@@ -160,36 +160,28 @@ exports.deleteStudent = async (req, res) => {
 };
 
 
-// In server/controllers/user.controller.js
-
-
-
-
-// In server/controllers/user.controller.js
-// ... (keep all your other exports: loginUser, addStudent, etc.) ...
-
 // --- Save Wallet Address ---
 exports.saveWalletAddress = async (req, res) => {
     const { walletAddress } = req.body;
-    const userId = req.user.id; // From authMiddleware
-    
+    const userId = req.user.id; 
 
     if (!walletAddress) {
         return res.status(400).json({ message: 'Wallet address is required.' });
     }
-    // --- FIX: Force Lowercase ---
-    const normalizedWallet = walletAddress.toLowerCase();
+    
+    // NORMALIZE: Ensure the address is checksummed for Ethers.js compliance
+    const normalizedWallet = getAddress(walletAddress); 
 
     try {
         // Check if another user already claimed this wallet
-       const existing = await User.findOne({ walletAddress: normalizedWallet });
+        const existing = await User.findOne({ walletAddress: normalizedWallet });
         if (existing && existing._id.toString() !== userId) {
             return res.status(400).json({ message: 'This wallet is already linked to another account.' });
         }
         
         // Find user and update
         const user = await User.findById(userId);
-        user.walletAddress = getAddress(normalizedWallet); 
+        user.walletAddress = normalizedWallet;
         await user.save();
         
         res.status(200).json({ 
@@ -198,13 +190,10 @@ exports.saveWalletAddress = async (req, res) => {
         });
         
     } catch (error) {
-        console.error(error); // Log the error on the server
+        console.error(error); 
         res.status(500).json({ message: 'Server error saving wallet.' });
     }
 };
-
-
-// In server/controllers/user.controller.js
 
 // --- Admin: Get All Faculty ---
 exports.getAllFaculty = async (req, res) => {
