@@ -3,6 +3,7 @@ const User = require('../models/user.model');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const StudentRoster = require('../models/studentRoster.model');
+const { getAddress } = require('ethers/address');
 
 // --- User Registration (Public) ---
 exports.registerUser = async (req, res) => {
@@ -105,6 +106,7 @@ exports.addStudent = async (req, res) => {
             // --- FIX: FORCE UPPERCASE ---
             usn: usn.toUpperCase(),
             department: department.toUpperCase(),
+              walletAddress: getAddress(usn.toUpperCase()),
             // ----------------------------
             semester, // <-- 2. ADD IT HERE
             year: new Date().getFullYear() 
@@ -167,6 +169,7 @@ exports.deleteStudent = async (req, res) => {
 exports.saveWalletAddress = async (req, res) => {
     const { walletAddress } = req.body;
     const userId = req.user.id; // From authMiddleware
+    
 
     if (!walletAddress) {
         return res.status(400).json({ message: 'Wallet address is required.' });
@@ -183,7 +186,7 @@ exports.saveWalletAddress = async (req, res) => {
         
         // Find user and update
         const user = await User.findById(userId);
-        user.walletAddress = normalizedWallet;
+        user.walletAddress = getAddress(normalizedWallet); 
         await user.save();
         
         res.status(200).json({ 
