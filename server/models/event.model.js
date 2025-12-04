@@ -17,6 +17,12 @@ const eventSchema = new Schema({
         type: Date,
         required: true
     },
+    
+    // --- NEW: Time Constraints ---
+    startTime: { type: String, required: true, default: "09:00" }, // e.g., "09:00"
+    endTime: { type: String, required: true, default: "17:00" }, // e.g., "17:00"
+    // ----------------------------
+
     description: {
         type: String
     },
@@ -65,7 +71,14 @@ const eventSchema = new Schema({
     },
     // ---------------------------------------------
     
-
+// --- NEW: POAP Location Configuration ---
+    location: {
+        latitude: { type: Number },
+        longitude: { type: Number },
+        address: { type: String },
+        radius: { type: Number, default: 0.5 } // Attendance radius in km
+    },
+    // ----------------------------------------
      // --- POAP / CHECK-IN FIELDS ---
     checkInToken: { type: String }, // Secret token for QR code
     checkInTokenExpiry: { type: Date },
