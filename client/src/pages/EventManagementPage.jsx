@@ -1,18 +1,16 @@
 // In client/src/pages/EventManagementPage.jsx
 import React, { useState, useEffect, useRef } from 'react';
-// --- FIX: Remove explicit file extensions (.js / .jsx) ---
 import api from '../api';
 import ParticipantsModal from '../components/ParticipantsModal';
 import AttendanceModal from '../components/AttendanceModal'; 
-import SignatureCanvas from 'react-signature-canvas';
+import SignatureCanvas from 'react-signature-canvas'; 
 import { useAuth } from '../context/AuthContext';
 import { TableSkeleton } from '../components/TableSkeleton'; 
-// ---------------------------------------------------------
+import { Input } from "@/components/ui/input"; // Import input here
 
 // --- SHADCN IMPORTS ---
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -67,8 +65,8 @@ function EventManagementPage() {
         eventType: 'Workshop',
         eventDuration: '',
         isPublic: false,
-        startTime: '09:00', 
-        endTime: '17:00',   
+        startTime: '09:00', // <-- NEW DEFAULT TIME
+        endTime: '17:00',   // <-- NEW DEFAULT TIME
         location: { latitude: null, longitude: null, address: '' }
     });
 
@@ -135,7 +133,7 @@ function EventManagementPage() {
     const setLocationToCurrent = () => {
         setIsGpsLoading(true);
         if (!navigator.geolocation) {
-            alert("Geolocation not supported. Cannot set Check-In location.");
+            alert("Location Capture Failed: Geolocation not supported by your browser.");
             setIsGpsLoading(false);
             return;
         }
@@ -147,14 +145,14 @@ function EventManagementPage() {
                         ...prev.location,
                         latitude: position.coords.latitude,
                         longitude: position.coords.longitude,
-                        address: 'Current GPS Venue' // Updated label
+                        address: `GPS Venue (${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)})` 
                     }
                 }));
                 setIsGpsLoading(false);
-                alert("GPS Location successfully captured and set as Venue.");
+                alert("Location Captured: GPS Venue coordinates set.");
             },
             () => {
-                alert("GPS Capture Failed. Please allow location access.");
+                alert("Location Capture Failed. Please grant browser permissions.");
                 setIsGpsLoading(false);
             },
             { enableHighAccuracy: true, timeout: 5000 }
@@ -186,7 +184,7 @@ function EventManagementPage() {
 
         try {
             await api.post('/events', {
-                ...formData, // Pass all form data
+                ...formData, 
                 location: formData.location, 
                 certificateConfig: {
                     collegeName: formData.collegeName,
@@ -214,14 +212,24 @@ function EventManagementPage() {
         }
     };
 
+    // --- UPDATED ISSUANCE LOGIC (Frontend Status Check) ---
     const handleIssueCertificates = async (event) => {
         if (!event.isComplete) {
-            alert(`Issuance is locked. Event ends at ${event.endTime}.`);
+            alert(`Issuance is locked. You can only issue certificates AFTER the event end time (${event.endTime}) has passed.`);
             return;
         }
         
-        const participantCount = event.participants?.length || 0;
-        if (!window.confirm(`Are you sure you want to issue certificates to all ${participantCount} participants?`)) return;
+        const issueType = event.certificatesIssued ? 'Issue New' : 'Issue All';
+        
+        if (issueType === 'Issue New' && event.participants.length > 0) {
+            // Confirmation to issue only to those who haven't received one yet
+            if (!window.confirm(`Issue certificates only to participants who have NOT yet received one?`)) return;
+        } else if (issueType === 'Issue All' && event.participants.length > 0) {
+             // Confirmation if issuing for the first time
+            if (!window.confirm(`Issue certificates to ALL ${event.participants.length} registered participants?`)) return;
+        }
+
+
         setIssueLoading(event._id);
         setIssueMessage({ id: null, text: null });
         setIssueError({ id: null, text: null });
@@ -230,7 +238,7 @@ function EventManagementPage() {
             setIssueMessage({ id: event._id, text: response.data.message });
             fetchEvents();
         } catch (err) {
-            setIssueError({ id: event._id, text: err.response?.data?.message || 'Failed.' });
+            setIssueError({ id: event._id, text: err.response?.data?.message || 'Issuance Failed.' });
         } finally {
             setIssueLoading(null);
         }
@@ -245,7 +253,7 @@ function EventManagementPage() {
             setQrData({ img: res.data.qrCode, url: res.data.checkInUrl });
             setIsQROpen(true); 
         } catch (e) {
-            alert("Failed to generate QR code. Are you logged in?");
+            alert("Failed to generate QR code. Ensure event is saved and you are logged in.");
         }
     };
 
@@ -414,7 +422,6 @@ function EventManagementPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {/* --- SKELETON LOADER LOGIC --- */}
                                     {isLoadingData ? (
                                         <TableSkeleton columns={5} rows={5} />
                                     ) : filteredEvents.length === 0 ? (

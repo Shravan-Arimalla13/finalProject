@@ -26,6 +26,10 @@ const eventSchema = new Schema({
     description: {
         type: String
     },
+        // --- TIME FIELDS ARE NOW OPTIONAL/DEFAULTS ---
+    startTime: { type: String, default: "09:00" }, 
+    endTime: { type: String, default: "17:00" },     
+    // ---------------------------------------------
     createdBy: {
         type: Schema.Types.ObjectId,
         ref: 'User', // Links to the Faculty/Admin who created it

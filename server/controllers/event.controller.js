@@ -2,26 +2,26 @@
 const Event = require('../models/event.model');
 const User = require('../models/user.model');
 const Certificate = require('../models/certificate.model');
-const { logActivity } = require('../utils/logger'); // Assuming logger exists
+const { logActivity } = require('../utils/logger'); 
+const { generateEventQR } = require('./poap.controller'); // We need this function reference
 
-// --- Helper: Format Time/Date ---
+// Helper: Format Time/Date
 const parseEventTime = (date, time) => {
     const eventDateTime = new Date(date);
     if (time) {
-        const [hour, minute] = time.split(':').map(Number);
+        const [hour, minute] = (time || "00:00").split(':').map(Number);
         eventDateTime.setHours(hour, minute, 0, 0);
     }
     return eventDateTime;
 };
 
-// --- 1. CREATE EVENT (Includes Time & Location) ---
+// --- 1. CREATE EVENT ---
 exports.createEvent = async (req, res) => {
     try {
         const { name, date, description, certificateConfig, isPublic, startTime, endTime, location } = req.body;
-        
         const userDept = req.user.department; 
 
-        // 1. Basic duplicate check
+        // Basic duplicate check
         const existingEvent = await Event.findOne({ name: name, department: userDept });
         if (existingEvent) {
             return res.status(400).json({ message: 'An event with this name already exists in your department.' });
@@ -31,9 +31,9 @@ exports.createEvent = async (req, res) => {
             name,
             date,
             description,
-            startTime: startTime || "09:00", // Save Start Time
-            endTime: endTime || "17:00",     // Save End Time
-            location: location,              // Save Location Data
+            startTime: startTime || "09:00", 
+            endTime: endTime || "17:00",     
+            location: location,              
             createdBy: req.user.id,
             department: userDept,
             isPublic: isPublic || false,
@@ -52,7 +52,7 @@ exports.createEvent = async (req, res) => {
     }
 };
 
-// --- 2. GET ALL EVENTS (Filtered & Checked for Completion) ---
+// --- 2. GET ALL EVENTS (Issuance is always unlocked after creation) ---
 exports.getAllEvents = async (req, res) => {
     try {
         let query = {};
@@ -68,17 +68,15 @@ exports.getAllEvents = async (req, res) => {
 
         const eventsWithStatus = events.map(event => {
             const eventDate = new Date(event.date);
-            
-            // SECURITY LOCK: Calculate event end time for comparison
-            const [endHour, endMinute] = (event.endTime || "17:00").split(':').map(Number);
             const eventEndTime = parseEventTime(eventDate, event.endTime);
             
-            // Check if event has COMPLETED
-            const isComplete = eventEndTime < now; 
+            // Revert to simple past check for "Upcoming" status
+            const isFutureEvent = eventDate.getTime() > now.getTime(); 
             
             return {
                 ...event.toObject(),
-                isComplete: isComplete, // Flag for frontend to unlock the 'Issue' button
+                // REMOVED isComplete CHECK: Issuance is unlocked unless in the future
+                isFutureEvent: isFutureEvent,
                 startTime: event.startTime,
                 endTime: event.endTime
             };
@@ -91,28 +89,32 @@ exports.getAllEvents = async (req, res) => {
     }
 };
 
+// --- REST OF CONTROLLER FUNCTIONS (unchanged) ---
+exports.getEventById = async (req, res) => {
+    try {
+        const event = await Event.findById(req.params.id);
+        if (!event) return res.status(404).json({ message: 'Event not found' });
+        res.json(event);
+    } catch (error) { return res.status(500).send('Server Error'); }
+};
 
-// --- 3. GET ALL PUBLIC EVENTS (Student Browse) ---
 exports.getPublicEvents = async (req, res) => {
     try {
         const studentDept = req.user.department ? req.user.department.toUpperCase() : "";
         const studentEmail = req.user.email;
 
-        // LOGIC: Show event IF (isPublic == true) OR (department == student's department)
         const events = await Event.find({
             $or: [
                 { isPublic: true },
-                { department: { $regex: new RegExp(`^${studentDept}$`, 'i') } } // Case-insensitive dept match
+                { department: { $regex: new RegExp(`^${studentDept}$`, 'i') } }
             ]
         })
         .populate('createdBy', 'name')
         .sort({ date: 1 });
 
-        // Transform to hide private details and add 'isRegistered' flag
         const safeEvents = events.map(event => {
             const isRegistered = event.participants.some(p => p.email === studentEmail);
             
-            // Check if event is in the past for UI lock
             const eventDate = new Date(event.date);
             const today = new Date();
             eventDate.setHours(0,0,0,0);
@@ -125,7 +127,7 @@ exports.getPublicEvents = async (req, res) => {
                 date: event.date,
                 description: event.description,
                 createdBy: event.createdBy,
-                isRegistered: isRegistered, 
+                isRegistered: isRegistered,
                 isPublic: event.isPublic,
                 isPast: isPast
             };
@@ -138,8 +140,6 @@ exports.getPublicEvents = async (req, res) => {
     }
 };
 
-
-// --- 4. REGISTER FOR EVENT (Student) ---
 exports.registerMeForEvent = async (req, res) => {
     try {
         const { name, email } = req.user;
@@ -148,7 +148,6 @@ exports.registerMeForEvent = async (req, res) => {
         const event = await Event.findById(eventId);
         if (!event) return res.status(404).json({ message: 'Event not found' });
         
-        // Check if registration period is over (Event has not started yet, but date is in the past)
         const eventDate = new Date(event.date);
         const today = new Date();
         eventDate.setHours(0,0,0,0);
@@ -171,15 +170,6 @@ exports.registerMeForEvent = async (req, res) => {
         console.error('Register Me Error:', error);
         res.status(500).send('Server Error');
     }
-};
-
-// --- RESTORED FUNCTIONS ---
-exports.getEventById = async (req, res) => {
-    try {
-        const event = await Event.findById(req.params.id);
-        if (!event) return res.status(404).json({ message: 'Event not found' });
-        res.json(event);
-    } catch (error) { return res.status(500).send('Server Error'); }
 };
 
 exports.getEventParticipants = async (req, res) => {
