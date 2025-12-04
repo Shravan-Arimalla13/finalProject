@@ -12,6 +12,8 @@ const adminRoutes = require('./routes/admin.routes');
 const authRoutes = require('./routes/auth.routes');
 const verifierRoutes = require('./routes/verifier.routes');
 const quizRoutes = require('./routes/quiz.routes');
+const poapRoutes = require('./routes/poap.routes'); 
+const recommendationRoutes = require('./routes/recommendation.routes');
 
 const app = express();
 const PORT = process.env.PORT || 10000; 
@@ -69,6 +71,8 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/verifier', verifierRoutes);
 app.use('/api/quiz', quizRoutes);
+app.use('/api/recommendations', recommendationRoutes);
+app.use('/api/poap', poapRoutes); // <--- THIS MUST BE HERE
 
 // --- START SERVER ---
 app.listen(PORT, '0.0.0.0', () => { // Bind to 0.0.0.0 for Render
