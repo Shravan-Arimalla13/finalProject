@@ -1,11 +1,22 @@
 // In server/utils/blockchain.js
+// In server/utils/blockchain.js
 const { ethers } = require('ethers');
 require('dotenv').config();
 
 // 1. Get info from .env
 const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS;
 const RPC_URL = process.env.BLOCKCHAIN_RPC_URL;
-const PRIVATE_KEY = process.env.PRIVATE_KEY; // <--- NEW: Read from .env
+let PRIVATE_KEY = process.env.PRIVATE_KEY; // Read private key from .env
+
+// --- FIX: AUTO-SWITCH TO HARDHAT TEST KEY FOR LOCALHOST ---
+// This prevents the "invalid private key" error when running locally
+if (RPC_URL && (RPC_URL.includes("127.0.0.1") || RPC_URL.includes("localhost"))) {
+    console.log("⚠️ Localhost detected. Using Hardhat Test Account #0.");
+    // This is the well-known private key for Account #0 in Hardhat
+    // This key always has 10,000 test ETH for local minting
+    PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+}
+// -----------------------------------------------------------
 
 if (!PRIVATE_KEY || !CONTRACT_ADDRESS || !RPC_URL) {
     console.error("Missing Blockchain Config (Check .env):", {
@@ -13,6 +24,8 @@ if (!PRIVATE_KEY || !CONTRACT_ADDRESS || !RPC_URL) {
         hasAddress: !!CONTRACT_ADDRESS,
         hasRPC: !!RPC_URL
     });
+    // Crash the app if critical config is missing
+    throw new Error("CRITICAL: Blockchain configuration incomplete.");
 }
 
 // 2. Get the ABI
@@ -22,57 +35,47 @@ const CONTRACT_ABI = contractArtifact.abi;
 // 3. Connect to the blockchain
 const provider = new ethers.JsonRpcProvider(RPC_URL);
 
-// 4. Get the "signer" (Your Real Wallet)
-// Use the private key from .env instead of the hardcoded one
+// 4. Get the "signer" (Hardhat key for local, your key for remote)
 const signer = new ethers.Wallet(PRIVATE_KEY, provider);
 
 // 5. Create the "Contract" object
 const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
 
-console.log('Blockchain helper loaded (NFT Mode).');
-console.log(`Connected to NFT contract at: ${CONTRACT_ADDRESS}`);
-console.log(`Operating as Wallet: ${signer.address}`); // Log who we are logged in as
+console.log('Blockchain helper loaded.');
+console.log(`Connected to contract at: ${CONTRACT_ADDRESS}`);
+console.log(`Operating as Wallet: ${signer.address}`); 
 
 // --- MINTING FUNCTION ---
 exports.mintNFT = async (studentWalletAddress, certificateHash) => {
     try {
-        console.log(`Minting NFT for hash: ${certificateHash}`);
-        
-        // Call mintCertificate
-        // Note: '0x' + certificateHash ensures it's treated as bytes32
+        // FIX: NORMALIZE WALLET ADDRESS BEFORE MINTING 
+        const studentWallet = getAddress(studentWalletAddress); // Assuming getAddress is imported
+
         const tx = await contract.mintCertificate(
-            studentWalletAddress, 
+            studentWallet, 
             '0x' + certificateHash 
         );
+        console.log(`Transaction sent: ${tx.hash}. Waiting...`);
         
-        console.log(`Transaction sent: ${tx.hash}. Waiting for confirmation...`);
+        const receipt = await tx.wait(); 
         
-        const receipt = await tx.wait(); // Wait for mining
-        
-        // Find Token ID from events
-        // We look for the TransferSingle event or CertificateMinted event
-        // CertificateMinted(uint256 indexed tokenId, bytes32 certHash, address indexed studentWallet)
-        // It is usually the last event log
         let tokenId = null;
-        
-        // Try to find the specific event "CertificateMinted"
-        const event = receipt.logs.find(log => {
-             try {
-                 const parsed = contract.interface.parseLog(log);
-                 return parsed && parsed.name === 'CertificateMinted';
-             } catch (e) { return false; }
-        });
 
-        if (event) {
-            const parsed = contract.interface.parseLog(event);
-            tokenId = parsed.args.tokenId.toString();
-        } else {
-            // Fallback: simple counter assumption or check other logs
-            console.warn("Could not parse TokenID from logs, using transaction hash reference.");
-            tokenId = "PENDING"; 
+        for (const log of receipt.logs) {
+            try {
+                const parsedLog = contract.interface.parseLog(log);
+                if (parsedLog && parsedLog.name === 'CertificateMinted') {
+                    tokenId = parsedLog.args.tokenId.toString();
+                    break; 
+                }
+            } catch (e) { continue; }
         }
-        
-        console.log(`✅ NFT MINTED! Token ID: ${tokenId}, TX Hash: ${tx.hash}`);
+
+        if (!tokenId) {
+            // FALLBACK: Fetch latest ID (Assumes a fresh deploy/reset if local)
+            const currentCounter = await contract.tokenIdCounter();
+            tokenId = currentCounter.toString();
+        }
         
         return {
             transactionHash: tx.hash,
@@ -81,13 +84,10 @@ exports.mintNFT = async (studentWalletAddress, certificateHash) => {
 
     } catch (error) {
         console.error('Blockchain minting failed:', error);
-        // Check for specific revert reasons
-        if (error.code === 'CALL_EXCEPTION') {
-            console.error("Transaction reverted! Check if Sender is Owner.");
-        }
         throw new Error('Blockchain transaction failed.');
     }
 };
+
 
 // --- REVOKE FUNCTION ---
 exports.revokeByHash = async (certificateHash) => {

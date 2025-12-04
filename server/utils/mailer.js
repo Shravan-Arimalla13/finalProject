@@ -1,21 +1,25 @@
 // In server/utils/mailer.js
 const nodemailer = require('nodemailer');
 
-// Professional configuration for Render/Cloud hosting
 const transporter = nodemailer.createTransport({
-    host: 'smtp-relay.brevo.com', // Brevo's host
-    port: 587,                   // TLS Port
-    secure: false,               // Must be false for 587 (uses STARTTLS)
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false, // Must be false for 587
     auth: {
-        user: process.env.EMAIL_HOST_USER, // Your Brevo login email
-        pass: process.env.EMAIL_HOST_PASSWORD, // Your Brevo SMTP Key/Password
+        user: process.env.EMAIL_HOST_USER,
+        pass: process.env.EMAIL_HOST_PASSWORD,
     },
-    // Adding extra timeout protection just in case
-    connectionTimeout: 15000, 
+    // --- FIX: SET FAST TIMEOUTS ---
+    connectionTimeout: 2000, // 2 seconds
+    greetingTimeout: 2000,   // 2 seconds
+    socketTimeout: 5000,     // 5 seconds
+    // ----------------------------
     tls: {
         rejectUnauthorized: false
-    }
+    },
+    family: 4, 
 });
+
 
 // --- IMPORTANT: UPDATE THIS TO YOUR REAL VERCEL DOMAIN ---
 // Ensure there is NO trailing slash at the end
