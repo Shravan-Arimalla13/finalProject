@@ -1,18 +1,16 @@
 // In client/src/pages/EventManagementPage.jsx
 import React, { useState, useEffect, useRef } from 'react';
-// --- FIX: Use ALIAS for ALL internal paths ---
-import api from '@/api';
-import ParticipantsModal from '@/components/ParticipantsModal';
-import AttendanceModal from '@/components/AttendanceModal'; 
+import api from '../api';
+import ParticipantsModal from '../components/ParticipantsModal';
+import AttendanceModal from '../components/AttendanceModal'; 
 import SignatureCanvas from 'react-signature-canvas';
-import { useAuth } from '@/context/AuthContext';
-import { TableSkeleton } from '@/components/TableSkeleton'; 
-// ---------------------------------------------
+import { useAuth } from '../context/AuthContext';
+import { TableSkeleton } from '../components/TableSkeleton'; 
 import { Input } from "@/components/ui/input";
 
-// --- SHADCN IMPORTS (Standard Alias) ---
+// --- SHADCN IMPORTS ---
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -135,7 +133,7 @@ function EventManagementPage() {
     const setLocationToCurrent = () => {
         setIsGpsLoading(true);
         if (!navigator.geolocation) {
-            alert("Geolocation not supported. Cannot set Check-In location.");
+            alert("Location Capture Failed: Geolocation not supported by your browser.");
             setIsGpsLoading(false);
             return;
         }
@@ -147,14 +145,14 @@ function EventManagementPage() {
                         ...prev.location,
                         latitude: position.coords.latitude,
                         longitude: position.coords.longitude,
-                        address: 'Current GPS Venue' // Updated label
+                        address: `GPS Venue (${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)})` 
                     }
                 }));
                 setIsGpsLoading(false);
-                alert("GPS Location successfully captured and set as Venue.");
+                alert("Location Captured: GPS Venue coordinates set.");
             },
             () => {
-                alert("GPS Capture Failed. Please allow location access.");
+                alert("Location Capture Failed. Please grant browser permissions.");
                 setIsGpsLoading(false);
             },
             { enableHighAccuracy: true, timeout: 5000 }
@@ -214,23 +212,69 @@ function EventManagementPage() {
         }
     };
 
-    const handleIssueCertificates = async (event) => {
-        // Issuance Lock Fix is handled by checking isFutureEvent in the table logic
+    // --- NEW HANDLER FOR ISSUANCE DROPDOWN ---
+    const handleIssuanceChoice = (event, type) => {
+        // Prevent issue if event is NOT complete (Optional: Re-enable later if time lock is needed)
+        /* if (!event.isComplete) {
+            alert(`Issuance is locked. Event ends at ${event.endTime}.`);
+            return;
+        }
+        */
         
-        const participantCount = event.participants?.length || 0;
-        if (!window.confirm(`Are you sure you want to issue certificates to all ${participantCount} participants?`)) return;
+        // This is a proxy for the actual issuance logic that runs on the server
+        const confirmMessage = 
+            type === 'attended' 
+                ? `Issue certificates ONLY to participants who successfully checked in via POAP?`
+                : `Issue certificates to ALL ${event.participants.length} registered students?`;
+
+        if (!window.confirm(confirmMessage)) return;
+
         setIssueLoading(event._id);
         setIssueMessage({ id: null, text: null });
         setIssueError({ id: null, text: null });
-        try {
-            const response = await api.post(`/certificates/issue/event/${event._id}`);
-            setIssueMessage({ id: event._id, text: response.data.message });
-            fetchEvents();
-        } catch (err) {
-            setIssueError({ id: event._id, text: err.response?.data?.message || 'Failed.' });
-        } finally {
-            setIssueLoading(null);
-        }
+
+        // API call now includes the issueType as a query parameter
+        api.post(`/certificates/issue/event/${event._id}?issueType=${type}`) 
+           .then(response => {
+                // Check if any errors were returned in the bulk process
+                const responseMessage = response.data.errors?.length > 0 
+                    ? `${response.data.message} (${response.data.errors.length} failed).`
+                    : response.data.message;
+
+                setIssueMessage({ id: event._id, text: responseMessage });
+                fetchEvents();
+           })
+           .catch(err => {
+                setIssueError({ id: event._id, text: err.response?.data?.message || 'Issuance Failed.' });
+           })
+           .finally(() => {
+                setIssueLoading(null);
+           });
+    };
+    // ----------------------------------------
+
+    const handleIssueCertificates = (event) => {
+        // This function handles the simple "Issue Remaining" button for already issued events
+        if (!window.confirm(`Issue certificates to remaining participants?`)) return;
+
+        // Note: For 'Issue Remaining', we just call the default bulk endpoint without query params
+        // The backend logic handles skipping existing certificates.
+
+        setIssueLoading(event._id);
+        setIssueMessage({ id: null, text: null });
+        setIssueError({ id: null, text: null });
+        
+        api.post(`/certificates/issue/event/${event._id}`)
+           .then(response => {
+                setIssueMessage({ id: event._id, text: response.data.message });
+                fetchEvents();
+           })
+           .catch(err => {
+                setIssueError({ id: event._id, text: err.response?.data?.message || 'Issuance Failed.' });
+           })
+           .finally(() => {
+                setIssueLoading(null);
+           });
     };
 
     const handleViewParticipants = (event) => setSelectedEvent(event);
@@ -242,7 +286,7 @@ function EventManagementPage() {
             setQrData({ img: res.data.qrCode, url: res.data.checkInUrl });
             setIsQROpen(true); 
         } catch (e) {
-            alert("Failed to generate QR code. Are you logged in?");
+            alert("Failed to generate QR code. Ensure event is saved and you are logged in.");
         }
     };
 
@@ -301,7 +345,7 @@ function EventManagementPage() {
                                                 <Input type="time" value={formData.startTime} onChange={(e) => setFormData({...formData, startTime: e.target.value})} />
                                             </div>
                                             <div className="space-y-2">
-                                                <Label>End Time (Issuance Lock)</Label>
+                                                <Label>End Time</Label>
                                                 <Input type="time" value={formData.endTime} onChange={(e) => setFormData({...formData, endTime: e.target.value})} />
                                             </div>
                                         </div>
@@ -430,31 +474,57 @@ function EventManagementPage() {
                                                     </TableCell>
                                                     <TableCell>{event.participants?.length || 0}</TableCell>
                                                     <TableCell>
+                                                        {/* Status Column */}
                                                         {!event.isComplete ? ( 
                                                             <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
                                                                 <Clock className='h-3 w-3 mr-1'/> Upcoming
                                                             </span>
+                                                        ) : event.certificatesIssued ? (
+                                                            // Status: Already Issued
+                                                            <div className="flex flex-col space-y-1">
+                                                                <span className="text-xs text-green-600 font-semibold flex items-center">
+                                                                    <UserCheck className="h-4 w-4 mr-1"/> Issued
+                                                                </span>
+                                                                <Button
+                                                                    onClick={() => handleIssueCertificates(event)} 
+                                                                    variant="outline"
+                                                                    size="xs"
+                                                                    disabled={issueLoading === event._id}
+                                                                    className="text-green-600 border-green-600 hover:text-green-700 h-6 px-2 text-xs"
+                                                                >
+                                                                    {issueLoading === event._id ? 'Processing...' : 'Issue Remaining'}
+                                                                </Button>
+                                                            </div>
                                                         ) : (
-                                                            <Button
-                                                                onClick={() => handleIssueCertificates(event)}
-                                                                variant={event.certificatesIssued ? "outline" : "default"}
-                                                                size="sm"
-                                                                disabled={isLoading}
-                                                                className={event.certificatesIssued 
-                                                                    ? "text-green-600 border-green-600 hover:text-green-700" 
-                                                                    : "bg-blue-600 hover:bg-blue-700 text-white"
-                                                                }
-                                                            >
-                                                                {isLoading ? 'Issuing...' : (event.certificatesIssued ? 'Issue to New' : 'Issue All')}
-                                                            </Button>
+                                                            // Status: Ready to Issue (Show Dropdown Choice)
+                                                            <DropdownMenu>
+                                                                <DropdownMenuTrigger asChild>
+                                                                    <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
+                                                                        Issue Certificates <MoreHorizontal className='h-4 w-4 ml-1'/>
+                                                                    </Button>
+                                                                </DropdownMenuTrigger>
+                                                                <DropdownMenuContent align="end">
+                                                                    <DropdownMenuLabel>Choose Issuance Target</DropdownMenuLabel>
+                                                                    
+                                                                    <DropdownMenuItem onClick={() => handleIssuanceChoice(event, 'attended')}>
+                                                                        <CheckCircle2 className="h-4 w-4 mr-2 text-green-600"/> ONLY Attended (POAP)
+                                                                    </DropdownMenuItem>
+                                                                    <DropdownMenuItem onClick={() => handleIssuanceChoice(event, 'all')}>
+                                                                        <Users className="h-4 w-4 mr-2 text-blue-600"/> ALL Registered Participants
+                                                                    </DropdownMenuItem>
+                                                                </DropdownMenuContent>
+                                                            </DropdownMenu>
                                                         )}
+                                                        
                                                         {issueMessage.id === event._id && <div className="text-xs text-green-600 mt-1">✅ {issueMessage.text}</div>}
                                                         {issueError.id === event._id && <div className="text-xs text-red-600 mt-1">⚠️ {issueError.text}</div>}
                                                     </TableCell>
+
                                                     <TableCell className="text-right">
                                                         <DropdownMenu>
                                                             <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><span className="sr-only">Open menu</span><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                                                             <DropdownMenuContent align="end">
+                                                                <DropdownMenuLabel>Actions</DropdownMenuLabel>
                                                                 <DropdownMenuItem onClick={() => handleViewParticipants(event)}>View Participants List</DropdownMenuItem>
                                                                 
                                                                 <DropdownMenuItem onClick={() => handleViewAttendance(event)}>
