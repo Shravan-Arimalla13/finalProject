@@ -4,18 +4,15 @@ const Event = require('../models/event.model');
 const User = require('../models/user.model');
 const { nanoid } = require('nanoid');
 const crypto = require('crypto');
-
-
-// --- CRITICAL FIX: Import Specific Ethers Utility ---
-// This is the correct way to import getAddress in a Node.js CJS module
+// --- CRITICAL FIX: ENSURE THESE ARE TOP-LEVEL IMPORTS ---
 const { getAddress } = require('ethers/address'); 
-
-// --- IMPORTS FOR BUSINESS LOGIC ---
 const { mintNFT, isHashValid, revokeByHash } = require('../utils/blockchain');
 const { generateCertificatePDF, createPDFBuffer } = require('../utils/certificateGenerator'); 
 const { sendCertificateIssued } = require('../utils/mailer'); 
 const { logActivity } = require('../utils/logger');
 const ipfsService = require('../services/ipfs.service');
+const POAP = require('../models/poap.model'); // Required for POAP attendees filter
+// --------------------------------------------------------
 
 
 // Helper function to escape regex characters (used in verifyCertificate)
@@ -43,7 +40,7 @@ exports.issueSingleCertificate = async (req, res) => {
         const existingCert = await Certificate.findOne({ eventName, studentEmail: normalizedEmail });
         if (existingCert) return res.status(400).json({ message: 'Certificate already exists.' });
 
-        // 1. FIX: NORMALIZE WALLET ADDRESS BEFORE MINTING 
+        // 1. NORMALIZE WALLET ADDRESS 
         const studentWallet = getAddress(student.walletAddress);
         
         // 2. Fetch Event Config (CRITICAL FOR IPFS PDF)
@@ -122,7 +119,23 @@ exports.issueEventCertificates = async (req, res) => {
         const event = await Event.findById(eventId);
         if (!event) return res.status(404).json({ message: 'Event not found' });
         
-        for (const participant of event.participants) {
+        // --- NEW LOGIC: Check Issuance Type (All vs Attended) ---
+        const issueType = req.query.issueType; // Expected: 'all' or 'attended'
+        
+        let targetParticipants = event.participants; // Default to all
+
+        if (issueType === 'attended') {
+            // Find who claimed the POAP for this event
+            const poapAttendees = await POAP.find({ eventId: event._id, isRevoked: false });
+            const poapEmails = new Set(poapAttendees.map(p => p.studentEmail));
+            
+            // Filter the registered list to only include those who checked in
+            targetParticipants = event.participants.filter(p => poapEmails.has(p.email));
+        }
+        // -----------------------------------------------------
+
+
+        for (const participant of targetParticipants) {
             const normalizedEmail = participant.email.toLowerCase();
             const student = await User.findOne({ email: normalizedEmail });
             
@@ -137,7 +150,7 @@ exports.issueEventCertificates = async (req, res) => {
                 continue;
             }
             
-            // FIX: NORMALIZE WALLET ADDRESS IN BULK LOOP
+            // FIX: NORMALIZE WALLET ADDRESS 
             const studentWallet = getAddress(student.walletAddress);
 
             const hashData = normalizedEmail + event.date + event.name;
@@ -202,6 +215,10 @@ exports.issueEventCertificates = async (req, res) => {
 
 // --- VERIFY CERTIFICATE ---
 exports.verifyCertificate = async (req, res) => {
+    function escapeRegExp(string) {
+      return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
     try {
         const { certId } = req.params;
         const safeCertId = escapeRegExp(certId); 
@@ -260,9 +277,7 @@ exports.downloadCertificate = async (req, res) => {
         const certificate = await Certificate.findOne({ certificateId: req.params.certId }).populate('issuedBy', 'name');
         if (!certificate) return res.status(404).json({ message: 'Certificate not found' });
         
-        // --- FIX: Download IPFS link if available ---
         if (certificate.ipfsUrl) {
-            // Redirect the client to the IPFS gateway
             return res.redirect(certificate.ipfsUrl); 
         }
 
@@ -270,7 +285,6 @@ exports.downloadCertificate = async (req, res) => {
         const studentUser = await User.findOne({ email: certificate.studentEmail });
         const certData = { ...certificate.toObject(), config: event?.certificateConfig || {}, studentDepartment: studentUser?.department || 'N/A', studentSemester: studentUser?.semester || '___' };
         
-        // Fallback: Generate PDF on the fly
         await generateCertificatePDF(certData, res); 
     } catch (error) { res.status(500).send('Server Error'); }
 };
