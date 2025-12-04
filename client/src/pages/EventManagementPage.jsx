@@ -1,11 +1,13 @@
 // In client/src/pages/EventManagementPage.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import api from '../api.js';
-import ParticipantsModal from '../components/ParticipantsModal.jsx';
-import AttendanceModal from '../components/AttendanceModal.jsx'; // <-- Added Attendance Modal
+// --- FIX: Remove explicit file extensions (.js / .jsx) ---
+import api from '../api';
+import ParticipantsModal from '../components/ParticipantsModal';
+import AttendanceModal from '../components/AttendanceModal'; 
 import SignatureCanvas from 'react-signature-canvas';
-import { useAuth } from '../context/AuthContext.jsx';
-import { TableSkeleton } from '../components/TableSkeleton.jsx'; 
+import { useAuth } from '../context/AuthContext';
+import { TableSkeleton } from '../components/TableSkeleton'; 
+// ---------------------------------------------------------
 
 // --- SHADCN IMPORTS ---
 import { Button } from "@/components/ui/button";
@@ -42,6 +44,7 @@ function EventManagementPage() {
     const [attendanceEvent, setAttendanceEvent] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     
+    // Issue State
     const [issueLoading, setIssueLoading] = useState(null);
     const [issueMessage, setIssueMessage] = useState({ id: null, text: null });
     const [issueError, setIssueError] = useState({ id: null, text: null });
@@ -53,7 +56,7 @@ function EventManagementPage() {
     // --- CREATE FORM STATE ---
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [isCreating, setIsCreating] = useState(false); 
-    const [isGpsLoading, setIsGpsLoading] = useState(false); // GPS state
+    const [isGpsLoading, setIsGpsLoading] = useState(false);
     
     const [formData, setFormData] = useState({
         name: '', date: '', description: '',
@@ -64,9 +67,9 @@ function EventManagementPage() {
         eventType: 'Workshop',
         eventDuration: '',
         isPublic: false,
-        startTime: '09:00',
+        startTime: '09:00', 
         endTime: '17:00',   
-        location: { latitude: null, longitude: null, address: '' } // Removed radius
+        location: { latitude: null, longitude: null, address: '' }
     });
 
     const [customDeptInput, setCustomDeptInput] = useState('');
@@ -117,6 +120,16 @@ function EventManagementPage() {
             reader.onloadend = () => setFunction(reader.result);
             reader.readAsDataURL(file);
         }
+    };
+
+    const handleLocationChange = (field, value) => {
+        setFormData(prev => ({ 
+            ...prev, 
+            location: {
+                ...prev.location,
+                [field]: value
+            }
+        }));
     };
 
     const setLocationToCurrent = () => {
@@ -203,7 +216,7 @@ function EventManagementPage() {
 
     const handleIssueCertificates = async (event) => {
         if (!event.isComplete) {
-            alert("Certificate issuance is locked. You can only issue certificates AFTER the event end time has passed.");
+            alert(`Issuance is locked. Event ends at ${event.endTime}.`);
             return;
         }
         
@@ -224,7 +237,7 @@ function EventManagementPage() {
     };
 
     const handleViewParticipants = (event) => setSelectedEvent(event);
-    const handleViewAttendance = (event) => setAttendanceEvent(event); // Open the attendance report modal
+    const handleViewAttendance = (event) => setAttendanceEvent(event);
     
     const handleGenerateQR = async (event) => {
         try {
@@ -279,7 +292,7 @@ function EventManagementPage() {
                                 </div>
 
                                 <hr className="border-border my-2" />
-                                <h3 className="font-semibold text-foreground">Time & Location Services (POAP)</h3>
+                                <h3 className="font-semibold text-foreground">Time & Location Services</h3>
                                 
                                 {/* 2. TIME AND LOCATION SETUP (NEW) */}
                                 <Card className="p-4 bg-muted/20 border-l-4 border-l-indigo-500">
@@ -316,7 +329,7 @@ function EventManagementPage() {
                                             {/* GPS STATUS FEEDBACK */}
                                             {formData.location.latitude && (
                                                 <p className="text-xs text-green-600 flex items-center gap-1">
-                                                    <CheckCircle2 className='h-3 w-3'/> GPS Venue Set: ({formData.location.latitude.toFixed(4)}, {formData.location.longitude.toFixed(4)})
+                                                    <CheckCircle2 className='h-3 w-3'/> GPS Venue Set: Lat/Lng {formData.location.latitude.toFixed(4)}
                                                 </p>
                                             )}
                                             {!formData.location.latitude && (
@@ -329,7 +342,7 @@ function EventManagementPage() {
                                 </Card>
                                 
                                 <hr className="border-border my-2" />
-                                <h3 className="font-semibold text-foreground">Certificate Details & Branding</h3>
+                                <h3 className="font-semibold text-foreground">Certificate Details</h3>
 
                                 {/* 3. CERTIFICATE AND BRANDING (Existing) */}
                                 <div className="grid grid-cols-2 gap-4">
@@ -357,7 +370,7 @@ function EventManagementPage() {
                                         </div>
                                     </div>
                                 </div>
-                                
+
                                 {/* 4. SIGNATURE AND LOGO (Existing) */}
                                 <div className="space-y-2">
                                     <Label className="flex items-center justify-between">
@@ -366,6 +379,7 @@ function EventManagementPage() {
                                     <div className="relative rounded-md border-2 border-dashed border-input bg-white overflow-hidden h-40">
                                         <SignatureCanvas ref={sigPadRef} penColor="black" canvasProps={{ className: 'w-full h-full cursor-crosshair relative z-10' }} />
                                     </div>
+                                    <Input type="file" accept="image/png" onChange={(e) => handleImageUpload(e, setSignatureImage)} className="text-xs" />
                                 </div>
 
                             </div>
@@ -400,6 +414,7 @@ function EventManagementPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
+                                    {/* --- SKELETON LOADER LOGIC --- */}
                                     {isLoadingData ? (
                                         <TableSkeleton columns={5} rows={5} />
                                     ) : filteredEvents.length === 0 ? (
@@ -444,7 +459,6 @@ function EventManagementPage() {
                                                         <DropdownMenu>
                                                             <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><span className="sr-only">Open menu</span><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                                                             <DropdownMenuContent align="end">
-                                                                <DropdownMenuLabel>Actions</DropdownMenuLabel>
                                                                 <DropdownMenuItem onClick={() => handleViewParticipants(event)}>View Participants List</DropdownMenuItem>
                                                                 
                                                                 <DropdownMenuItem onClick={() => handleViewAttendance(event)}>
@@ -473,7 +487,6 @@ function EventManagementPage() {
                 <ParticipantsModal event={selectedEvent} onClose={() => setSelectedEvent(null)} />
                 <AttendanceModal event={attendanceEvent} onClose={() => setAttendanceEvent(null)} />
                 
-                {/* --- QR CODE MODAL --- */}
                 <Dialog open={isQROpen} onOpenChange={setIsQROpen}>
                     <DialogContent className="sm:max-w-md text-center">
                         <DialogHeader>
