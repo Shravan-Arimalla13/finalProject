@@ -3,21 +3,18 @@ const nodemailer = require('nodemailer');
 
 // Professional configuration for Render/Cloud hosting
 const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com', // Or 'smtp-relay.brevo.com' if you switched
-    port: 587,
-    secure: false, // Must be false for port 587 (TLS)
+    host: 'smtp-relay.brevo.com', // Brevo's host
+    port: 587,                   // TLS Port
+    secure: false,               // Must be false for 587 (uses STARTTLS)
     auth: {
-        user: process.env.EMAIL_HOST_USER,
-        pass: process.env.EMAIL_HOST_PASSWORD,
+        user: process.env.EMAIL_HOST_USER, // Your Brevo login email
+        pass: process.env.EMAIL_HOST_PASSWORD, // Your Brevo SMTP Key/Password
     },
+    // Adding extra timeout protection just in case
+    connectionTimeout: 15000, 
     tls: {
-        rejectUnauthorized: false,
-        ciphers: "SSLv3"
-    },
-    family: 4, // Force IPv4 to prevent Gmail timeouts on cloud servers
-    connectionTimeout: 10000, 
-    greetingTimeout: 5000,   
-    socketTimeout: 10000      
+        rejectUnauthorized: false
+    }
 });
 
 // --- IMPORTANT: UPDATE THIS TO YOUR REAL VERCEL DOMAIN ---
