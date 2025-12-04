@@ -4,11 +4,24 @@ const Event = require('../models/event.model');
 const User = require('../models/user.model');
 const { nanoid } = require('nanoid');
 const crypto = require('crypto');
+
+// --- CRITICAL FIX: Import Specific Ethers Utility ---
+// This is the correct way to import getAddress in a Node.js CJS module
+const { getAddress } = require('ethers/address'); 
+
+// --- IMPORTS FOR BUSINESS LOGIC ---
 const { mintNFT, isHashValid, revokeByHash } = require('../utils/blockchain');
 const { generateCertificatePDF, createPDFBuffer } = require('../utils/certificateGenerator'); 
 const { sendCertificateIssued } = require('../utils/mailer'); 
 const { logActivity } = require('../utils/logger');
 const ipfsService = require('../services/ipfs.service');
+
+
+// Helper function to escape regex characters (used in verifyCertificate)
+function escapeRegExp(string) {
+    if (!string) return '';
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 // --- ISSUE SINGLE CERTIFICATE ---
 exports.issueSingleCertificate = async (req, res) => {
@@ -29,56 +42,44 @@ exports.issueSingleCertificate = async (req, res) => {
         const existingCert = await Certificate.findOne({ eventName, studentEmail: normalizedEmail });
         if (existingCert) return res.status(400).json({ message: 'Certificate already exists.' });
 
-        // 1. Fetch Event Config (CRITICAL FOR IPFS PDF)
+        // 1. FIX: NORMALIZE WALLET ADDRESS BEFORE MINTING 
+        const studentWallet = getAddress(student.walletAddress);
+        
+        // 2. Fetch Event Config (CRITICAL FOR IPFS PDF)
         const event = await Event.findOne({ name: eventName });
         const config = event?.certificateConfig || {};
 
-        // 2. Generate IDs & Hash
+        // 3. Generate IDs & Hash
         const certificateId = `CERT-${nanoid(10)}`;
         const hashData = normalizedEmail + eventDate + eventName;
         const certificateHash = crypto.createHash('sha256').update(hashData).digest('hex');
-        // --- FIX: Normalize Wallet Address in Bulk Loop ---
-        const studentWallet = getAddress(student.walletAddress);
-        const { getAddress } = require('ethers/address');
-        // 3. Mint NFT
-        const { transactionHash, tokenId } = await mintNFT(student.walletAddress, certificateHash);
+        
+        // 4. Mint NFT
+        const { transactionHash, tokenId } = await mintNFT(studentWallet, certificateHash);
 
-        // 4. IPFS UPLOAD
-        console.log("Generating PDF Buffer for IPFS...");
+        // 5. IPFS UPLOAD
         let ipfsHash = null;
         let ipfsUrl = null;
 
         try {
-            // Prepare complete data object for the generator
             const certDataForPDF = {
-                certificateId,
-                studentName,
-                eventName,
-                eventDate,
-                studentEmail: normalizedEmail,
-                config: config, // Pass the config we fetched
-                studentDepartment: student.department,
-                studentSemester: student.semester
+                certificateId, studentName, eventName, eventDate,
+                studentEmail: normalizedEmail, config: config,
+                studentDepartment: student.department, studentSemester: student.semester
             };
 
             const pdfBuffer = await createPDFBuffer(certDataForPDF);
-            
-            // Upload
             const ipfsResult = await ipfsService.uploadCertificate(pdfBuffer, certDataForPDF);
             
             if (ipfsResult) {
-                console.log("IPFS Success:", ipfsResult.ipfsUrl);
                 ipfsHash = ipfsResult.ipfsHash;
                 ipfsUrl = ipfsResult.ipfsUrl;
-            } else {
-                console.error("IPFS returned null result.");
-            }
+            } 
         } catch (ipfsError) {
-            console.error("IPFS Critical Failure:", ipfsError);
-            // Allow issuance to proceed even if storage fails, but log it loudly
+            console.error("IPFS Upload Warning (Failed but non-critical):", ipfsError.message);
         }
 
-        // 5. Save to DB
+        // 6. Save to DB
         const newCert = new Certificate({
             certificateId,
             tokenId: tokenId.toString(),
@@ -90,13 +91,13 @@ exports.issueSingleCertificate = async (req, res) => {
             eventDate,
             issuedBy: issuerId,
             verificationUrl: `/verify/${certificateId}`,
-            ipfsHash, // Save these fields
+            ipfsHash,
             ipfsUrl
         });
 
         await newCert.save();
 
-        // 6. Email & Log
+        // 7. Email & Log
         await sendCertificateIssued(normalizedEmail, studentName, eventName, certificateId);
         await logActivity(req.user, "CERTIFICATE_ISSUED", `Issued NFT to ${studentName} for ${eventName}`);
 
@@ -129,19 +130,20 @@ exports.issueEventCertificates = async (req, res) => {
                 skippedCount++;
                 continue;
             }
-// --- FIX: Normalize Wallet Address in Bulk Loop ---
-        const studentWallet = getAddress(student.walletAddress);
-        const { getAddress } = require('ethers/address');
+
             if (await Certificate.findOne({ eventName: event.name, studentEmail: normalizedEmail })) {
                 skippedCount++;
                 continue;
             }
+            
+            // FIX: NORMALIZE WALLET ADDRESS IN BULK LOOP
+            const studentWallet = getAddress(student.walletAddress);
 
             const hashData = normalizedEmail + event.date + event.name;
             const certificateHash = crypto.createHash('sha256').update(hashData).digest('hex');
 
             try {
-                const { transactionHash, tokenId } = await mintNFT(student.walletAddress, certificateHash);
+                const { transactionHash, tokenId } = await mintNFT(studentWallet, certificateHash);
                 const certificateId = `CERT-${nanoid(10)}`;
                 
                 // IPFS Logic for Bulk
@@ -158,12 +160,12 @@ exports.issueEventCertificates = async (req, res) => {
                         studentDepartment: student.department,
                         studentSemester: student.semester
                     };
-                    const pdfBuffer = await createPDFBuffer(certDataForPDF);
-                    const ipfsResult = await ipfsService.uploadCertificate(pdfBuffer, certDataForPDF);
-                    if (ipfsResult) {
-                        ipfsHash = ipfsResult.ipfsHash;
-                        ipfsUrl = ipfsResult.ipfsUrl;
-                    }
+                     const pdfBuffer = await createPDFBuffer(certDataForPDF);
+                     const ipfsResult = await ipfsService.uploadCertificate(pdfBuffer, certDataForPDF);
+                     if (ipfsResult) {
+                         ipfsHash = ipfsResult.ipfsHash;
+                         ipfsUrl = ipfsResult.ipfsUrl;
+                     }
                 } catch (e) { console.error("Bulk IPFS Error:", e.message); }
 
                 const newCert = new Certificate({
@@ -197,44 +199,17 @@ exports.issueEventCertificates = async (req, res) => {
     }
 };
 
-// --- REVOKE CERTIFICATE ---
-exports.revokeCertificate = async (req, res) => {
-    const { certificateId } = req.body;
-    try {
-        const certificate = await Certificate.findOne({ certificateId: certificateId });
-        if (!certificate) return res.status(404).json({ message: 'Certificate not found.' });
-
-        await revokeByHash(certificate.certificateHash);
-        await logActivity(req.user, "CERTIFICATE_REVOKED", `Revoked certificate ID: ${certificateId}`);
-        
-        // Mark as revoked in DB to update UI immediately
-        certificate.isRevoked = true; // Assuming schema supports this, or handled by blockchain check
-        // We rely on blockchain check usually, but updating DB is good for caching if you add the field
-        
-        res.status(200).json({ message: 'Certificate successfully revoked on the blockchain.' });
-    } catch (error) {
-        console.error('Revocation failed:', error);
-        res.status(500).json({ message: 'Server error during revocation.' });
-    }
-};
-
 // --- VERIFY CERTIFICATE ---
 exports.verifyCertificate = async (req, res) => {
-    function escapeRegExp(string) {
-      return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    }
-
     try {
         const { certId } = req.params;
-        const safeCertId = escapeRegExp(certId);
+        const safeCertId = escapeRegExp(certId); 
 
         const certificate = await Certificate.findOne({ 
             certificateId: { $regex: new RegExp(`^${safeCertId}$`, 'i') } 
         }).populate('issuedBy', 'name');
 
-        if (!certificate) {
-            return res.status(404).json({ message: 'Certificate not found or invalid.' });
-        }
+        if (!certificate) return res.status(404).json({ message: 'Certificate not found or invalid.' });
 
         const event = await Event.findOne({ name: certificate.eventName });
         const config = event?.certificateConfig || {};
@@ -262,7 +237,7 @@ exports.verifyCertificate = async (req, res) => {
                 title: config.certificateTitle,
                 dept: config.headerDepartment
             },
-            ipfsUrl: certificate.ipfsUrl // Send this to frontend!
+            ipfsUrl: certificate.ipfsUrl
         });
     } catch (error) {
         console.error(error);
@@ -283,9 +258,35 @@ exports.downloadCertificate = async (req, res) => {
     try {
         const certificate = await Certificate.findOne({ certificateId: req.params.certId }).populate('issuedBy', 'name');
         if (!certificate) return res.status(404).json({ message: 'Certificate not found' });
+        
+        // --- FIX: Download IPFS link if available ---
+        if (certificate.ipfsUrl) {
+            // Redirect the client to the IPFS gateway
+            return res.redirect(certificate.ipfsUrl); 
+        }
+
         const event = await Event.findOne({ name: certificate.eventName });
         const studentUser = await User.findOne({ email: certificate.studentEmail });
         const certData = { ...certificate.toObject(), config: event?.certificateConfig || {}, studentDepartment: studentUser?.department || 'N/A', studentSemester: studentUser?.semester || '___' };
+        
+        // Fallback: Generate PDF on the fly
         await generateCertificatePDF(certData, res); 
     } catch (error) { res.status(500).send('Server Error'); }
+};
+
+// --- REVOKE CERTIFICATE ---
+exports.revokeCertificate = async (req, res) => {
+    const { certificateId } = req.body;
+    try {
+        const certificate = await Certificate.findOne({ certificateId: certificateId });
+        if (!certificate) return res.status(404).json({ message: 'Certificate not found.' });
+
+        await revokeByHash(certificate.certificateHash);
+        await logActivity(req.user, "CERTIFICATE_REVOKED", `Revoked certificate ID: ${certificateId}`);
+
+        res.status(200).json({ message: 'Certificate successfully revoked on the blockchain.' });
+    } catch (error) {
+        console.error('Revocation failed:', error);
+        res.status(500).json({ message: 'Server error during revocation.' });
+    }
 };
