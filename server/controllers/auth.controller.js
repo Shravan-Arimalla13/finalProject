@@ -4,13 +4,13 @@ const StudentRoster = require('../models/studentRoster.model');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { SiweMessage, generateNonce } = require('siwe'); 
-const { getAddress } = require('ethers/address'); // Must be imported for checksumming
+const { getAddress } = require('ethers/address');
 const { sendStudentActivation, sendPasswordReset } = require('../utils/mailer'); 
 
-// --- CRITICAL FIX: DEFINE HELPERS FIRST ---
+// Helper function to handle USN normalization for consistency
 const normalizeUSN = (usn) => (usn ? usn.toUpperCase() : null);
 const normalizeDept = (dept) => (dept ? dept.toUpperCase() : 'GENERAL');
-// ------------------------------------------
+
 
 // --- SIWE STEP 1: Get Nonce ---
 exports.getNonce = async (req, res) => {
