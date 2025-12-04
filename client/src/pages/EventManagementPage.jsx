@@ -1,16 +1,15 @@
 // In client/src/pages/EventManagementPage.jsx
 import React, { useState, useEffect, useRef } from 'react';
-// --- FIX: Use Alias for all internal paths ---
-import api from '@/api.js';
-import ParticipantsModal from '@/components/ParticipantsModal.jsx';
-import { useAuth } from '@/context/AuthContext.jsx';
-import { TableSkeleton } from '@/components/TableSkeleton.jsx'; 
-// ---------------------------------------------
-import SignatureCanvas from 'react-signature-canvas'; // External Module
+import api from '../api.js';
+import ParticipantsModal from '../components/ParticipantsModal.jsx';
+import AttendanceModal from '../components/AttendanceModal.jsx'; // <-- Added Attendance Modal
+import SignatureCanvas from 'react-signature-canvas';
+import { useAuth } from '../context/AuthContext.jsx';
+import { TableSkeleton } from '../components/TableSkeleton.jsx'; 
 
 // --- SHADCN IMPORTS ---
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,7 +22,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { MoreHorizontal, Search, PenTool, RefreshCcw, Loader2, QrCode, Copy, MapPin, Clock } from "lucide-react"; 
+import { MoreHorizontal, Search, PenTool, RefreshCcw, Loader2, QrCode, Copy, MapPin, Clock, CheckCircle2 } from "lucide-react"; 
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,7 +42,6 @@ function EventManagementPage() {
     const [attendanceEvent, setAttendanceEvent] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     
-    // Issue State
     const [issueLoading, setIssueLoading] = useState(null);
     const [issueMessage, setIssueMessage] = useState({ id: null, text: null });
     const [issueError, setIssueError] = useState({ id: null, text: null });
@@ -55,6 +53,8 @@ function EventManagementPage() {
     // --- CREATE FORM STATE ---
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [isCreating, setIsCreating] = useState(false); 
+    const [isGpsLoading, setIsGpsLoading] = useState(false); // GPS state
+    
     const [formData, setFormData] = useState({
         name: '', date: '', description: '',
         collegeName: 'K. S. Institute of Technology', 
@@ -64,9 +64,9 @@ function EventManagementPage() {
         eventType: 'Workshop',
         eventDuration: '',
         isPublic: false,
-        startTime: '09:00', 
+        startTime: '09:00',
         endTime: '17:00',   
-        location: { latitude: null, longitude: null, address: '', radius: 0.5 } 
+        location: { latitude: null, longitude: null, address: '' } // Removed radius
     });
 
     const [customDeptInput, setCustomDeptInput] = useState('');
@@ -119,19 +119,11 @@ function EventManagementPage() {
         }
     };
 
-    const handleLocationChange = (field, value) => {
-        setFormData(prev => ({ 
-            ...prev, 
-            location: {
-                ...prev.location,
-                [field]: value
-            }
-        }));
-    };
-
     const setLocationToCurrent = () => {
+        setIsGpsLoading(true);
         if (!navigator.geolocation) {
-            alert("Geolocation not supported by your browser.");
+            alert("Geolocation not supported. Cannot set Check-In location.");
+            setIsGpsLoading(false);
             return;
         }
         navigator.geolocation.getCurrentPosition(
@@ -142,11 +134,16 @@ function EventManagementPage() {
                         ...prev.location,
                         latitude: position.coords.latitude,
                         longitude: position.coords.longitude,
-                        address: 'Current Location (Use for POAP Check-In)'
+                        address: 'Current GPS Venue' // Updated label
                     }
                 }));
+                setIsGpsLoading(false);
+                alert("GPS Location successfully captured and set as Venue.");
             },
-            () => alert("Could not get location. Ensure permissions are granted."),
+            () => {
+                alert("GPS Capture Failed. Please allow location access.");
+                setIsGpsLoading(false);
+            },
             { enableHighAccuracy: true, timeout: 5000 }
         );
     };
@@ -156,12 +153,11 @@ function EventManagementPage() {
         setSignatureImage(null); 
     };
 
-    // --- UPDATED CREATE HANDLER ---
     const handleCreateEvent = async () => {
         if (isCreating) return; 
 
         if (!formData.name || !formData.date || !formData.startTime || !formData.endTime) {
-            alert("Please fill in the Event Name, Date, Start Time, and End Time.");
+            alert("Please fill in Event Name, Date, Start Time, and End Time.");
             return;
         }
 
@@ -177,12 +173,7 @@ function EventManagementPage() {
 
         try {
             await api.post('/events', {
-                name: formData.name,
-                date: formData.date,
-                description: formData.description,
-                isPublic: formData.isPublic,
-                startTime: formData.startTime,
-                endTime: formData.endTime,
+                ...formData, // Pass all form data
                 location: formData.location, 
                 certificateConfig: {
                     collegeName: formData.collegeName,
@@ -233,7 +224,7 @@ function EventManagementPage() {
     };
 
     const handleViewParticipants = (event) => setSelectedEvent(event);
-    const handleViewAttendance = (event) => setAttendanceEvent(event);
+    const handleViewAttendance = (event) => setAttendanceEvent(event); // Open the attendance report modal
     
     const handleGenerateQR = async (event) => {
         try {
@@ -266,7 +257,7 @@ function EventManagementPage() {
                         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
                             <DialogHeader>
                                 <DialogTitle>Create Event & Design Certificate</DialogTitle>
-                                <DialogDescription>Customize the details and branding.</DialogDescription>
+                                <DialogDescription>Configure attendance, time lock, and branding.</DialogDescription>
                             </DialogHeader>
                             
                             <div className="grid gap-6 py-4">
@@ -288,44 +279,57 @@ function EventManagementPage() {
                                 </div>
 
                                 <hr className="border-border my-2" />
-                                <h3 className="font-semibold text-foreground">Time & Location Services</h3>
+                                <h3 className="font-semibold text-foreground">Time & Location Services (POAP)</h3>
                                 
                                 {/* 2. TIME AND LOCATION SETUP (NEW) */}
-                                <div className="grid grid-cols-3 gap-4">
-                                    <div className="space-y-2">
-                                        <Label><Clock className="h-4 w-4 inline mr-1" /> Start Time</Label>
-                                        <Input type="time" value={formData.startTime} onChange={(e) => setFormData({...formData, startTime: e.target.value})} />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>End Time (Issuance Lock)</Label>
-                                        <Input type="time" value={formData.endTime} onChange={(e) => setFormData({...formData, endTime: e.target.value})} />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>Attendance Radius (KM)</Label>
-                                        <Input type="number" min="0.1" step="0.1" value={formData.location.radius} onChange={(e) => handleLocationChange('radius', Number(e.target.value))} />
-                                    </div>
-                                </div>
+                                <Card className="p-4 bg-muted/20 border-l-4 border-l-indigo-500">
+                                    <CardContent className="p-0 space-y-4">
+                                        {/* TIME CONSTRAINTS */}
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <Label><Clock className="h-4 w-4 inline mr-1" /> Start Time</Label>
+                                                <Input type="time" value={formData.startTime} onChange={(e) => setFormData({...formData, startTime: e.target.value})} />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>End Time (Issuance Lock)</Label>
+                                                <Input type="time" value={formData.endTime} onChange={(e) => setFormData({...formData, endTime: e.target.value})} />
+                                            </div>
+                                        </div>
 
-                                <div className="space-y-2">
-                                    <Label><MapPin className="h-4 w-4 inline mr-1" /> Physical Check-In Location</Label>
-                                    <div className="flex gap-2 items-center">
-                                        <Input 
-                                            placeholder="Set Venue Address or Coordinates" 
-                                            value={formData.location.address || (formData.location.latitude ? `GPS: ${formData.location.latitude.toFixed(4)}` : '')}
-                                            onChange={(e) => handleLocationChange('address', e.target.value)}
-                                            disabled={!!formData.location.latitude}
-                                        />
-                                        <Button type="button" onClick={setLocationToCurrent} variant="outline" className="shrink-0">
-                                            Use Current GPS
-                                        </Button>
-                                    </div>
-                                    {(formData.location.latitude && !formData.location.address) && 
-                                        <p className="text-xs text-green-600">Lat/Lng set: {formData.location.latitude}, {formData.location.longitude}</p>
-                                    }
-                                </div>
+                                        {/* LOCATION SETUP */}
+                                        <div className="space-y-2 border-t pt-3">
+                                            <Label><MapPin className="h-4 w-4 inline mr-1" /> Physical Check-In Venue</Label>
+                                            
+                                            <div className="flex gap-2 items-center">
+                                                <Input 
+                                                    placeholder="Venue Address (e.g., Seminar Hall A)" 
+                                                    value={formData.location.address}
+                                                    onChange={(e) => handleLocationChange('address', e.target.value)}
+                                                    className="flex-1"
+                                                />
+                                                <Button type="button" onClick={setLocationToCurrent} disabled={isGpsLoading} variant="secondary" className="shrink-0">
+                                                    {isGpsLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1"/> : <MapPin className='h-4 w-4 mr-1'/>}
+                                                    Capture GPS
+                                                </Button>
+                                            </div>
+
+                                            {/* GPS STATUS FEEDBACK */}
+                                            {formData.location.latitude && (
+                                                <p className="text-xs text-green-600 flex items-center gap-1">
+                                                    <CheckCircle2 className='h-3 w-3'/> GPS Venue Set: ({formData.location.latitude.toFixed(4)}, {formData.location.longitude.toFixed(4)})
+                                                </p>
+                                            )}
+                                            {!formData.location.latitude && (
+                                                <p className="text-xs text-amber-600">
+                                                    (Optional) Capture GPS coordinates for fraud-proof attendance.
+                                                </p>
+                                            )}
+                                        </div>
+                                    </CardContent>
+                                </Card>
                                 
                                 <hr className="border-border my-2" />
-                                <h3 className="font-semibold text-foreground">Certificate Details</h3>
+                                <h3 className="font-semibold text-foreground">Certificate Details & Branding</h3>
 
                                 {/* 3. CERTIFICATE AND BRANDING (Existing) */}
                                 <div className="grid grid-cols-2 gap-4">
@@ -353,7 +357,7 @@ function EventManagementPage() {
                                         </div>
                                     </div>
                                 </div>
-
+                                
                                 {/* 4. SIGNATURE AND LOGO (Existing) */}
                                 <div className="space-y-2">
                                     <Label className="flex items-center justify-between">
@@ -362,7 +366,6 @@ function EventManagementPage() {
                                     <div className="relative rounded-md border-2 border-dashed border-input bg-white overflow-hidden h-40">
                                         <SignatureCanvas ref={sigPadRef} penColor="black" canvasProps={{ className: 'w-full h-full cursor-crosshair relative z-10' }} />
                                     </div>
-                                    <Input type="file" accept="image/png" onChange={(e) => handleImageUpload(e, setSignatureImage)} className="text-xs" />
                                 </div>
 
                             </div>
@@ -376,6 +379,7 @@ function EventManagementPage() {
 
                 {/* --- EVENT LIST TABLE --- */}
                 <Card className="shadow-lg">
+                    {/* ... (Table Header and Content) ... */}
                     <CardHeader>
                         <CardTitle>Existing Events</CardTitle>
                         <div className="relative pt-4">
@@ -441,7 +445,7 @@ function EventManagementPage() {
                                                             <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><span className="sr-only">Open menu</span><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                                                             <DropdownMenuContent align="end">
                                                                 <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                                                <DropdownMenuItem onClick={() => handleViewParticipants(event)}>View Participants</DropdownMenuItem>
+                                                                <DropdownMenuItem onClick={() => handleViewParticipants(event)}>View Participants List</DropdownMenuItem>
                                                                 
                                                                 <DropdownMenuItem onClick={() => handleViewAttendance(event)}>
                                                                     <MapPin className="mr-2 h-4 w-4" /> View Attendance Report
@@ -451,7 +455,7 @@ function EventManagementPage() {
                                                                     <QrCode className="mr-2 h-4 w-4" /> Show Check-In QR
                                                                 </DropdownMenuItem>
                                                                 
-                                                                <DropdownMenuItem onClick={() => copyToClipboard(event)}>Copy Link</DropdownMenuItem>
+                                                                <DropdownMenuItem onClick={() => copyToClipboard(event)}>Copy Public Link</DropdownMenuItem>
                                                             </DropdownMenuContent>
                                                         </DropdownMenu>
                                                     </TableCell>
@@ -467,10 +471,9 @@ function EventManagementPage() {
 
                 {/* --- MODALS --- */}
                 <ParticipantsModal event={selectedEvent} onClose={() => setSelectedEvent(null)} />
-                {/* Note: AttendanceModal is needed here! */}
-                {/* import AttendanceModal from '../components/AttendanceModal.jsx'; */}
-                {/* <AttendanceModal event={attendanceEvent} onClose={() => setAttendanceEvent(null)} /> */}
+                <AttendanceModal event={attendanceEvent} onClose={() => setAttendanceEvent(null)} />
                 
+                {/* --- QR CODE MODAL --- */}
                 <Dialog open={isQROpen} onOpenChange={setIsQROpen}>
                     <DialogContent className="sm:max-w-md text-center">
                         <DialogHeader>

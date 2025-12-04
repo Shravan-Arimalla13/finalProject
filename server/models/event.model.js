@@ -76,7 +76,7 @@ const eventSchema = new Schema({
         latitude: { type: Number },
         longitude: { type: Number },
         address: { type: String },
-        radius: { type: Number, default: 0.5 } // Attendance radius in km
+        
     },
     // ----------------------------------------
      // --- POAP / CHECK-IN FIELDS ---
