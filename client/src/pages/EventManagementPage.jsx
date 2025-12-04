@@ -1,14 +1,16 @@
 // In client/src/pages/EventManagementPage.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import api from '../api';
-import ParticipantsModal from '../components/ParticipantsModal';
-import AttendanceModal from '../components/AttendanceModal'; 
-import SignatureCanvas from 'react-signature-canvas'; 
-import { useAuth } from '../context/AuthContext';
-import { TableSkeleton } from '../components/TableSkeleton'; 
-import { Input } from "@/components/ui/input"; // Import input here
+// --- FIX: Use ALIAS for ALL internal paths ---
+import api from '@/api';
+import ParticipantsModal from '@/components/ParticipantsModal';
+import AttendanceModal from '@/components/AttendanceModal'; 
+import SignatureCanvas from 'react-signature-canvas';
+import { useAuth } from '@/context/AuthContext';
+import { TableSkeleton } from '@/components/TableSkeleton'; 
+// ---------------------------------------------
+import { Input } from "@/components/ui/input";
 
-// --- SHADCN IMPORTS ---
+// --- SHADCN IMPORTS (Standard Alias) ---
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -22,7 +24,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { MoreHorizontal, Search, PenTool, RefreshCcw, Loader2, QrCode, Copy, MapPin, Clock, CheckCircle2 } from "lucide-react"; 
+import { MoreHorizontal, Search, PenTool, RefreshCcw, Loader2, QrCode, Copy, MapPin, Clock, CheckCircle2, Award, Users, UserCheck } from "lucide-react"; 
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -65,8 +67,8 @@ function EventManagementPage() {
         eventType: 'Workshop',
         eventDuration: '',
         isPublic: false,
-        startTime: '09:00', // <-- NEW DEFAULT TIME
-        endTime: '17:00',   // <-- NEW DEFAULT TIME
+        startTime: '09:00', 
+        endTime: '17:00',   
         location: { latitude: null, longitude: null, address: '' }
     });
 
@@ -133,7 +135,7 @@ function EventManagementPage() {
     const setLocationToCurrent = () => {
         setIsGpsLoading(true);
         if (!navigator.geolocation) {
-            alert("Location Capture Failed: Geolocation not supported by your browser.");
+            alert("Geolocation not supported. Cannot set Check-In location.");
             setIsGpsLoading(false);
             return;
         }
@@ -145,14 +147,14 @@ function EventManagementPage() {
                         ...prev.location,
                         latitude: position.coords.latitude,
                         longitude: position.coords.longitude,
-                        address: `GPS Venue (${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)})` 
+                        address: 'Current GPS Venue' // Updated label
                     }
                 }));
                 setIsGpsLoading(false);
-                alert("Location Captured: GPS Venue coordinates set.");
+                alert("GPS Location successfully captured and set as Venue.");
             },
             () => {
-                alert("Location Capture Failed. Please grant browser permissions.");
+                alert("GPS Capture Failed. Please allow location access.");
                 setIsGpsLoading(false);
             },
             { enableHighAccuracy: true, timeout: 5000 }
@@ -212,24 +214,11 @@ function EventManagementPage() {
         }
     };
 
-    // --- UPDATED ISSUANCE LOGIC (Frontend Status Check) ---
     const handleIssueCertificates = async (event) => {
-        if (!event.isComplete) {
-            alert(`Issuance is locked. You can only issue certificates AFTER the event end time (${event.endTime}) has passed.`);
-            return;
-        }
+        // Issuance Lock Fix is handled by checking isFutureEvent in the table logic
         
-        const issueType = event.certificatesIssued ? 'Issue New' : 'Issue All';
-        
-        if (issueType === 'Issue New' && event.participants.length > 0) {
-            // Confirmation to issue only to those who haven't received one yet
-            if (!window.confirm(`Issue certificates only to participants who have NOT yet received one?`)) return;
-        } else if (issueType === 'Issue All' && event.participants.length > 0) {
-             // Confirmation if issuing for the first time
-            if (!window.confirm(`Issue certificates to ALL ${event.participants.length} registered participants?`)) return;
-        }
-
-
+        const participantCount = event.participants?.length || 0;
+        if (!window.confirm(`Are you sure you want to issue certificates to all ${participantCount} participants?`)) return;
         setIssueLoading(event._id);
         setIssueMessage({ id: null, text: null });
         setIssueError({ id: null, text: null });
@@ -238,7 +227,7 @@ function EventManagementPage() {
             setIssueMessage({ id: event._id, text: response.data.message });
             fetchEvents();
         } catch (err) {
-            setIssueError({ id: event._id, text: err.response?.data?.message || 'Issuance Failed.' });
+            setIssueError({ id: event._id, text: err.response?.data?.message || 'Failed.' });
         } finally {
             setIssueLoading(null);
         }
@@ -253,7 +242,7 @@ function EventManagementPage() {
             setQrData({ img: res.data.qrCode, url: res.data.checkInUrl });
             setIsQROpen(true); 
         } catch (e) {
-            alert("Failed to generate QR code. Ensure event is saved and you are logged in.");
+            alert("Failed to generate QR code. Are you logged in?");
         }
     };
 
