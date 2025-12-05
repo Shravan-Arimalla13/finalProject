@@ -2,35 +2,36 @@
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/auth.middleware');
-const { isAdminOrFaculty, isStudent } = require('../middleware/role.middleware'); // <-- IMPORT CHECKS
+const { isAdminOrFaculty, isStudent } = require('../middleware/role.middleware');
 
-// Import Controller Functions
-const { 
+// --- CRITICAL FIX: Ensure all six functions are imported from the controller ---
+const {
     generateEventQR, 
     claimPOAP, 
     getMyPOAPs,
     verifyPOAP,
     getEventAttendance,
     revokePOAP
-} = require('../controllers/poap.controller');
+} = require('../controllers/poap.controller'); 
+// --------------------------------------------------------------------------
 
 // --- ROUTES ---
 
-// Faculty: Generate QR
+// Faculty: Generate QR (for check-in)
 router.get(
     '/event/:eventId/qr',
-    [authMiddleware, isAdminOrFaculty], // <-- Ensure these are defined
+    [authMiddleware, isAdminOrFaculty],
     generateEventQR
 );
 
-// Faculty: View Attendance
+// Faculty: View Attendance Report
 router.get(
     '/event/:eventId/attendance',
     [authMiddleware, isAdminOrFaculty],
     getEventAttendance
 );
 
-// Student: Claim
+// Student: Claim POAP
 router.post(
     '/claim',
     [authMiddleware, isStudent],
@@ -44,10 +45,10 @@ router.get(
     getMyPOAPs
 );
 
-// Public: Verify
+// Public: Verify POAP
 router.get('/verify/:tokenId', verifyPOAP);
 
-// Admin: Revoke
+// Admin: Revoke POAP
 router.post(
     '/revoke',
     [authMiddleware, isAdminOrFaculty],
