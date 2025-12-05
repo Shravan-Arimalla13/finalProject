@@ -1,19 +1,19 @@
 // In server/utils/blockchain.js
-// In server/utils/blockchain.js
 const { ethers } = require('ethers');
 require('dotenv').config();
+
+// --- CRITICAL FIX: Add getAddress to THIS file ---
+const { getAddress } = require('ethers/address');
+// -------------------------------------------------
 
 // 1. Get info from .env
 const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS;
 const RPC_URL = process.env.BLOCKCHAIN_RPC_URL;
-let PRIVATE_KEY = process.env.PRIVATE_KEY; // Read private key from .env
+let PRIVATE_KEY = process.env.PRIVATE_KEY; 
 
-// --- FIX: AUTO-SWITCH TO HARDHAT TEST KEY FOR LOCALHOST ---
-// This prevents the "invalid private key" error when running locally
+// --- AUTO-SWITCH TO HARDHAT TEST KEY FOR LOCALHOST ---
 if (RPC_URL && (RPC_URL.includes("127.0.0.1") || RPC_URL.includes("localhost"))) {
     console.log("⚠️ Localhost detected. Using Hardhat Test Account #0.");
-    // This is the well-known private key for Account #0 in Hardhat
-    // This key always has 10,000 test ETH for local minting
     PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 }
 // -----------------------------------------------------------
@@ -24,7 +24,6 @@ if (!PRIVATE_KEY || !CONTRACT_ADDRESS || !RPC_URL) {
         hasAddress: !!CONTRACT_ADDRESS,
         hasRPC: !!RPC_URL
     });
-    // Crash the app if critical config is missing
     throw new Error("CRITICAL: Blockchain configuration incomplete.");
 }
 
@@ -34,33 +33,29 @@ const CONTRACT_ABI = contractArtifact.abi;
 
 // 3. Connect to the blockchain
 const provider = new ethers.JsonRpcProvider(RPC_URL);
-
-// 4. Get the "signer" (Hardhat key for local, your key for remote)
 const signer = new ethers.Wallet(PRIVATE_KEY, provider);
-
-// 5. Create the "Contract" object
 const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
 
 console.log('Blockchain helper loaded.');
 console.log(`Connected to contract at: ${CONTRACT_ADDRESS}`);
 console.log(`Operating as Wallet: ${signer.address}`); 
 
-// --- MINTING FUNCTION ---
+// --- MINTING FUNCTION (FIXED ARGUMENT) ---
 exports.mintNFT = async (studentWalletAddress, certificateHash) => {
     try {
-        // FIX: NORMALIZE WALLET ADDRESS BEFORE MINTING 
-        const studentWallet = getAddress(studentWalletAddress); // Assuming getAddress is imported
-
+        // NOTE: studentWalletAddress is ALREADY validated/checksummed by the controller, 
+        // but applying getAddress here ensures max safety, especially if other functions call mintNFT.
+        const studentWallet = getAddress(studentWalletAddress);
+        
         const tx = await contract.mintCertificate(
             studentWallet, 
             '0x' + certificateHash 
         );
-        console.log(`Transaction sent: ${tx.hash}. Waiting...`);
+        // ... (rest of function remains the same) ...
         
         const receipt = await tx.wait(); 
         
         let tokenId = null;
-
         for (const log of receipt.logs) {
             try {
                 const parsedLog = contract.interface.parseLog(log);
@@ -72,7 +67,7 @@ exports.mintNFT = async (studentWalletAddress, certificateHash) => {
         }
 
         if (!tokenId) {
-            // FALLBACK: Fetch latest ID (Assumes a fresh deploy/reset if local)
+            // FALLBACK: Fetch latest ID
             const currentCounter = await contract.tokenIdCounter();
             tokenId = currentCounter.toString();
         }
@@ -88,14 +83,11 @@ exports.mintNFT = async (studentWalletAddress, certificateHash) => {
     }
 };
 
-
-// --- REVOKE FUNCTION ---
+// --- REVOKE FUNCTION (Also needs getAddress fix in case argument isn't checked) ---
 exports.revokeByHash = async (certificateHash) => {
     try {
         console.log(`Sending REVOKE for hash: ${certificateHash}`);
-        const tx = await contract.revokeCertificateByHash(
-            '0x' + certificateHash
-        );
+        const tx = await contract.revokeCertificateByHash('0x' + certificateHash);
         await tx.wait();
         console.log(`✅ Hash successfully REVOKED! TX Hash: ${tx.hash}`);
         return tx.hash;
@@ -108,9 +100,7 @@ exports.revokeByHash = async (certificateHash) => {
 // --- VERIFICATION FUNCTION ---
 exports.isHashValid = async (certificateHash) => {
     try {
-        const isValid = await contract.isHashValid(
-            '0x' + certificateHash
-        );
+        const isValid = await contract.isHashValid('0x' + certificateHash);
         return { exists: true, isRevoked: !isValid }; 
     } catch (error) {
         console.error('Blockchain verification failed:', error.message);
