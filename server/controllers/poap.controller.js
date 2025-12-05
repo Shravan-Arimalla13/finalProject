@@ -7,7 +7,7 @@ const QRCode = require('qrcode');
 const crypto = require('crypto');
 const { getAddress } = require('ethers/address'); // CRITICAL FIX: Ensure this import is here
 
-// --- 1. GENERATE QR CODE (Faculty) ---
+// --- 1. GENERATE QR ---
 exports.generateEventQR = async (req, res) => {
     try {
         const { eventId } = req.params;
@@ -20,8 +20,8 @@ exports.generateEventQR = async (req, res) => {
         event.checkInTokenExpiry = new Date(event.date.getTime() + 24*60*60*1000); // 24 hours from event start
         await event.save();
         
-        // Use your VERCEL URL here (must match the correct deployment)
-        const baseUrl = "https://the-blockchain-based-skill-credenti.vercel.app"; 
+        // Use your VERCEL URL here
+        const baseUrl = "https://the-blockchain-based-skill-credenti.vercel.app";
         const checkInUrl = `${baseUrl}/poap/checkin?token=${checkInToken}&eventId=${eventId}`;
         
         const qrCode = await QRCode.toDataURL(checkInUrl);
@@ -32,7 +32,7 @@ exports.generateEventQR = async (req, res) => {
     }
 };
 
-// --- 2. CLAIM POAP (Student) ---
+// --- 2. CLAIM POAP ---
 exports.claimPOAP = async (req, res) => {
     try {
         const { token, eventId, gps } = req.body;
