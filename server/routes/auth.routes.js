@@ -1,26 +1,32 @@
 // In server/routes/auth.routes.js
 const express = require('express');
 const router = express.Router();
-const { claimFacultyInvite, requestStudentActivation, activateStudentAccount,getNonce, // <-- ADD
-    verifySignature,requestPasswordReset, 
-    resetPassword } = require('../controllers/auth.controller');
+const authMiddleware = require('../middleware/auth.middleware');
 
-// Public route to claim an invite and create a faculty account
-router.post('/claim-invite', claimFacultyInvite);
+// --- CRITICAL FIX: Ensure all functions are imported ---
+const {
+    claimFacultyInvite, // <-- MUST BE PRESENT
+    requestStudentActivation,
+    activateStudentAccount,
+    getNonce,
+    verifySignature,
+    requestPasswordReset,
+    resetPassword
+} = require('../controllers/auth.controller');
+// -----------------------------------------------------
 
-// We will add the student activation route here later
-// --- NEW STUDENT ROUTE ---
+// --- 1. Claim Faculty Invite ---
+router.post('/claim-invite', claimFacultyInvite); // This line crashed because claimFacultyInvite was undefined
+
+// --- 2. Student Activation ---
 router.post('/request-student-activation', requestStudentActivation);
-
-// --- NEW STUDENT ACTIVATION (STEP 2) ---
 router.post('/activate-student-account', activateStudentAccount);
 
-
-// --- NEW SIWE ROUTES (FOR STUDENT LOGIN) ---
+// --- 3. SIWE / Wallet Auth ---
 router.get('/nonce', getNonce);
 router.post('/verify-signature', verifySignature);
 
-// --- PASSWORD RESET ROUTES ---
+// --- 4. Password Reset ---
 router.post('/forgot-password', requestPasswordReset);
 router.post('/reset-password', resetPassword);
 
