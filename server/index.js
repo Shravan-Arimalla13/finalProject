@@ -7,7 +7,6 @@ require('dotenv').config();
 // --- IMPORT ROUTE FILES ---
 const userRoutes = require('./routes/user.routes');
 const eventRoutes = require('./routes/event.routes');
-const certificateRoutes = require('./routes/certificate.routes');
 const certificateRoutes = require('./routes/certificateRoutes');
 const adminRoutes = require('./routes/admin.routes');
 const authRoutes = require('./routes/auth.routes');
