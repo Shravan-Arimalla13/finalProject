@@ -112,46 +112,39 @@ exports.getEventById = async (req, res) => {
 
 exports.getPublicEvents = async (req, res) => {
     try {
-        const studentDept = req.user.department ? req.user.department.toUpperCase() : "";
-        const studentEmail = req.user.email;
+        // Fetch only public events
+        const events = await Event.find({ isPublic: true })
+            .populate('createdBy', 'name')
+            .sort({ date: -1 });
 
-        const events = await Event.find({
-            $or: [
-                { isPublic: true },
-                { department: { $regex: new RegExp(`^${studentDept}$`, 'i') } }
-            ]
-        })
-        .populate('createdBy', 'name')
-        .sort({ date: 1 });
+        const now = new Date();
 
-        const safeEvents = events.map(event => {
-            const isRegistered = event.participants.some(p => p.email === studentEmail);
+        const eventsWithStatus = events.map(event => {
+            // Precise time parsing
+            const eventDateStr = new Date(event.date).toISOString().split('T')[0];
+            const startTime = new Date(`${eventDateStr}T${event.startTime}:00`);
+            const endTime = new Date(`${eventDateStr}T${event.endTime}:00`);
             
-            const eventDate = new Date(event.date);
-            const today = new Date();
-            eventDate.setHours(0,0,0,0);
-            today.setHours(0,0,0,0);
-            const isPast = eventDate.getTime() < today.getTime(); 
+            let status = 'Upcoming';
+            if (now > endTime) {
+                status = 'Completed';
+            } else if (now >= startTime && now <= endTime) {
+                status = 'Ongoing';
+            }
 
             return {
-                _id: event._id,
-                name: event.name,
-                date: event.date,
-                description: event.description,
-                createdBy: event.createdBy,
-                isRegistered: isRegistered,
-                isPublic: event.isPublic,
-                isPast: isPast
+                ...event.toObject(),
+                status: status, // This is what the frontend is looking for
+                isFutureEvent: now < startTime,
+                isActive: now >= startTime && now <= endTime
             };
         });
 
-        res.json(safeEvents);
+        res.json(eventsWithStatus);
     } catch (error) {
-        console.error('Get Public Events Error:', error);
         res.status(500).send('Server Error');
     }
 };
-
 exports.registerMeForEvent = async (req, res) => {
     try {
         const { name, email } = req.user;
