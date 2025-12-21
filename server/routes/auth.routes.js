@@ -323,3 +323,5 @@ exports.resetPassword = async (req, res) => {
         return res.status(400).json({ message: 'Invalid or expired token.' });
     }
 };
+
+module.exports = router;
