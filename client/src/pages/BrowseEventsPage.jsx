@@ -113,121 +113,98 @@ function BrowseEventsPage() {
         </div>
 
         {/* --- EVENT GRID --- */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredEvents.length === 0 ? (
-            <div className="col-span-full text-center py-20 border-2 border-dashed rounded-xl">
-               <Calendar className="h-12 w-12 mx-auto text-muted-foreground opacity-50 mb-4" />
-               <p className="text-lg text-muted-foreground">
-                 {searchTerm ? `No events found matching "${searchTerm}"` : "No active events available right now."}
-               </p>
-            </div>
-          ) : (
-// --- Inside filteredEvents.map ---
-{filteredEvents.map((event) => {
-  const status = registerStatus[event._id];
-  
-  // 1. CALCULATE DYNAMIC STATUS (Logic Fix)
-  let currentStatus = event.status; 
-  
-  if (!currentStatus) {
-    const now = new Date();
-    // Extract YYYY-MM-DD from the event date to avoid time-zone shifts
-    const eventDatePart = new Date(event.date).toISOString().split('T')[0];
-    
-    // Create actual comparable Date objects using the event's time strings
-    const startTime = new Date(`${eventDatePart}T${event.startTime}:00`);
-    const endTime = new Date(`${eventDatePart}T${event.endTime}:00`);
-
-    if (now > endTime) currentStatus = "Completed";
-    else if (now >= startTime && now <= endTime) currentStatus = "Ongoing";
-    else currentStatus = "Upcoming";
-  }
-
-  const isPast = currentStatus === "Completed";
-  const isOngoing = currentStatus === "Ongoing";
-
-  return (
-    <Card
-      key={event._id}
-      className="flex flex-col transition-all duration-300 hover:shadow-lg hover:-translate-y-1 border-slate-200 dark:border-slate-800"
-    >
-      <CardHeader>
-        <div className="flex justify-between items-start">
-          <CardTitle className="text-xl text-blue-700 dark:text-blue-400 line-clamp-1">
-            {event.name}
-          </CardTitle>
-          
-          {/* 2. DYNAMIC BADGE Logic */}
-          {isPast ? (
-            <Badge variant="destructive" className="bg-red-100 text-red-700 border-none">Expired</Badge>
-          ) : isOngoing ? (
-            <Badge className="bg-green-100 text-green-700 animate-pulse border-none">Live Now</Badge>
-          ) : (
-            <Badge className="bg-yellow-100 text-yellow-700 border-none">Upcoming</Badge>
-          )}
-        </div>
-        <CardDescription className="line-clamp-2 mt-2 min-h-[40px]">
-          {event.description || "No description provided."}
-        </CardDescription>
-      </CardHeader>
+        {/* --- EVENT GRID ---  */}
+<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+  {filteredEvents.length === 0 ? (
+    <div className="col-span-full text-center py-20 border-2 border-dashed rounded-xl">
+       <Calendar className="h-12 w-12 mx-auto text-muted-foreground opacity-50 mb-4" />
+       <p className="text-lg text-muted-foreground">
+         {searchTerm ? `No events found matching "${searchTerm}"` : "No active events available right now."}
+       </p>
+    </div>
+  ) : (
+    filteredEvents.map((event) => {
+      // Line 127: Correctly declaring variables within the map function scope
+      const status = registerStatus[event._id];
       
-      <CardContent className="flex-grow space-y-3 text-sm text-muted-foreground">
-        <div className="flex items-center"> 
-          <Calendar className="h-4 w-4 mr-2 opacity-70" />
-          {new Date(event.date).toLocaleDateString()}
-        </div>
-        <div className="flex items-center font-medium">
-          <Clock className="h-4 w-4 mr-2 opacity-70" />
-          {event.startTime} - {event.endTime}
-        </div>
-        <div className="flex items-center">
-          <User className="h-4 w-4 mr-2 opacity-70" />
-          {event.createdBy?.name || "Faculty Admin"}
-        </div>
-      </CardContent>
+      // Calculate dynamic status for UI consistency
+      let currentStatus = event.status; 
+      if (!currentStatus) {
+        const now = new Date();
+        const eventDatePart = new Date(event.date).toISOString().split('T')[0];
+        const startTime = new Date(`${eventDatePart}T${event.startTime}:00`);
+        const endTime = new Date(`${eventDatePart}T${event.endTime}:00`);
 
-      <CardFooter className="pt-2 block space-y-2">
-        {/* 3. BUTTON LOGIC */}
-        {event.isRegistered && isOngoing ? (
-          <Button
-            onClick={() => window.location.href = `/attendance/claim/${event._id}`}
-            className="w-full bg-orange-600 hover:bg-orange-700 text-white animate-bounce"
-          >
-            <CheckCircle2 className="mr-2 h-4 w-4" /> Verify Attendance (GPS)
-          </Button>
-        ) : event.isRegistered ? (
-          <Button disabled variant="secondary" className="w-full bg-green-50 text-green-700">
-            <CheckCircle2 className="mr-2 h-4 w-4" /> Registered
-          </Button>
-        ) : isPast ? (
-          <Button disabled variant="outline" className="w-full text-slate-400">
-            Registration Closed
-          </Button>
-        ) : (
-          <div className="w-full space-y-2">
-            {!status?.message && (
+        if (now > endTime) currentStatus = "Completed";
+        else if (now >= startTime && now <= endTime) currentStatus = "Ongoing";
+        else currentStatus = "Upcoming";
+      }
+
+      const isPast = currentStatus === "Completed";
+      const isOngoing = currentStatus === "Ongoing";
+
+      // The 'return' statement must wrap the entire Card JSX 
+      return (
+        <Card
+          key={event._id}
+          className="flex flex-col transition-all duration-300 hover:shadow-lg hover:-translate-y-1 border-slate-200"
+        >
+          <CardHeader>
+            <div className="flex justify-between items-start">
+              <CardTitle className="text-xl text-blue-700 line-clamp-1">
+                {event.name}
+              </CardTitle>
+              {isPast ? (
+                <Badge variant="destructive" className="bg-red-100 text-red-700">Expired</Badge>
+              ) : isOngoing ? (
+                <Badge className="bg-green-100 text-green-700 animate-pulse">Live Now</Badge>
+              ) : (
+                <Badge className="bg-yellow-100 text-yellow-700">Upcoming</Badge>
+              )}
+            </div>
+          </CardHeader>
+          
+          <CardContent className="flex-grow space-y-3 text-sm">
+            <div className="flex items-center">
+              <Calendar className="h-4 w-4 mr-2" />
+              {new Date(event.date).toLocaleDateString()}
+            </div>
+            <div className="flex items-center">
+              <Clock className="h-4 w-4 mr-2" />
+              {event.startTime} - {event.endTime}
+            </div>
+          </CardContent>
+
+          <CardFooter className="pt-2 block space-y-2">
+            {event.isRegistered && isOngoing ? (
+              <Button
+                onClick={() => window.location.href = `/attendance/claim/${event._id}`}
+                className="w-full bg-orange-600 text-white"
+              >
+                Verify Attendance (GPS)
+              </Button>
+            ) : event.isRegistered ? (
+              <Button disabled variant="secondary" className="w-full">
+                Registered
+              </Button>
+            ) : isPast ? (
+              <Button disabled variant="outline" className="w-full">
+                Event Concluded
+              </Button>
+            ) : (
               <Button
                 onClick={() => handleRegisterMe(event._id)}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-                disabled={status?.loading}
+                className="w-full bg-blue-600 text-white"
               >
-                {status?.loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Register for Event
               </Button>
             )}
-            {status?.message && (
-              <div className={`w-full text-center p-2 rounded text-sm ${status.isError ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'}`}>
-                {status.message}
-              </div>
-            )}
-          </div>
-        )}
-      </CardFooter>
-    </Card>
-  );
-})}
-          )}
-        </div>
+          </CardFooter>
+        </Card>
+      );
+    })
+  )}
+</div>
       </div>
     </div>
   );
