@@ -67,16 +67,28 @@ exports.getAllEvents = async (req, res) => {
         const now = new Date();
 
         const eventsWithStatus = events.map(event => {
-            const eventDate = new Date(event.date);
-            const eventEndTime = parseEventTime(eventDate, event.endTime);
+            // 1. Parse Event Start and End Times accurately
+            const eventDateStr = new Date(event.date).toISOString().split('T')[0];
+            const startTime = new Date(`${eventDateStr}T${event.startTime}:00`);
+            const endTime = new Date(`${eventDateStr}T${event.endTime}:00`);
             
-            // Revert to simple past check for "Upcoming" status
-            const isFutureEvent = eventDate.getTime() > now.getTime(); 
-            
+            // 2. Determine Dynamic Status
+            let status = 'Upcoming';
+            if (now > endTime) {
+                status = 'Completed';
+            } else if (now >= startTime && now <= endTime) {
+                status = 'Ongoing';
+            }
+
+            // 3. Logic for Business Rules
+            const isFutureEvent = now < startTime; // Used to block premature issuance
+            const isActive = now >= startTime && now <= endTime; // Used for POAP/GPS check
+
             return {
                 ...event.toObject(),
-                // REMOVED isComplete CHECK: Issuance is unlocked unless in the future
+                status: status, // New dynamic status field for UI
                 isFutureEvent: isFutureEvent,
+                isActive: isActive,
                 startTime: event.startTime,
                 endTime: event.endTime
             };

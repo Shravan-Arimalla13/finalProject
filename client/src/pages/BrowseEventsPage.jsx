@@ -122,92 +122,111 @@ function BrowseEventsPage() {
                </p>
             </div>
           ) : (
-            filteredEvents.map((event) => {
-              const status = registerStatus[event._id];
-              
-              // --- DATE LOGIC FIX ---
-              const eventDate = new Date(event.date);
-              const today = new Date();
-              // Reset time to midnight to compare strictly by date
-              eventDate.setHours(0, 0, 0, 0);
-              today.setHours(0, 0, 0, 0);
-              
-              // Is it strictly in the past? (Yesterday or before)
-              const isPast = eventDate.getTime() < today.getTime(); 
-              // ---------------------
+// --- Inside filteredEvents.map ---
+filteredEvents.map((event) => {
+  const status = registerStatus[event._id];
+  
+  // Use the dynamic status from the backend to determine styling
+  // Matches our backend logic: Upcoming, Ongoing, Completed
+  const currentStatus = event.status || "Upcoming"; 
+  const isPast = currentStatus === "Completed";
+  const isOngoing = currentStatus === "Ongoing";
 
-              return (
-                <Card
-                  key={event._id}
-                  className="flex flex-col transition-all duration-300 hover:shadow-lg hover:-translate-y-1 border-slate-200 dark:border-slate-800"
-                >
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <CardTitle className="text-xl text-blue-700 dark:text-blue-400 line-clamp-1" title={event.name}>
-                        {event.name}
-                      </CardTitle>
-                      {isPast ? (
-                          <Badge variant="secondary">Past</Badge>
-                      ) : event.isPublic ? (
-                          <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-200 border-none">Public</Badge>
-                      ) : (
-                          <Badge variant="outline">Dept</Badge>
-                      )}
-                    </div>
-                    <CardDescription className="line-clamp-2 mt-2 min-h-[40px]">
-                      {event.description || "No description provided."}
-                    </CardDescription>
-                  </CardHeader>
-                  
-                  <CardContent className="flex-grow space-y-3 text-sm text-muted-foreground">
-                    <div className="flex items-center">
-                      <Calendar className="h-4 w-4 mr-2 opacity-70" />
-                      {new Date(event.date).toLocaleDateString()}
-                    </div>
-                    <div className="flex items-center">
-                      <User className="h-4 w-4 mr-2 opacity-70" />
-                      {event.createdBy?.name || "Faculty"}
-                    </div>
-                  </CardContent>
+  return (
+    <Card
+      key={event._id}
+      className="flex flex-col transition-all duration-300 hover:shadow-lg hover:-translate-y-1 border-slate-200 dark:border-slate-800"
+    >
+      <CardHeader>
+        <div className="flex justify-between items-start">
+          <CardTitle className="text-xl text-blue-700 dark:text-blue-400 line-clamp-1" title={event.name}>
+            {event.name}
+          </CardTitle>
+          
+          {/* Dynamic Badge Logic */}
+          {isPast ? (
+            <Badge variant="destructive" className="bg-red-100 text-red-700 hover:bg-red-100 border-none">Expired</Badge>
+          ) : isOngoing ? (
+            <Badge className="bg-green-100 text-green-700 hover:bg-green-200 border-none animate-pulse">Live Now</Badge>
+          ) : (
+            <Badge className="bg-yellow-100 text-yellow-700 hover:bg-yellow-200 border-none">Upcoming</Badge>
+          )}
+        </div>
+        <CardDescription className="line-clamp-2 mt-2 min-h-[40px]">
+          {event.description || "No description provided."}
+        </CardDescription>
+      </CardHeader>
+      
+      <CardContent className="flex-grow space-y-3 text-sm text-muted-foreground">
+        <div className="flex items-center"> 
+          <Calendar className="h-4 w-4 mr-2 opacity-70" />
+          {new Date(event.date).toLocaleDateString()}
+        </div>
+        <div className="flex items-center font-medium text-slate-600 dark:text-slate-300">
+          <Clock className="h-4 w-4 mr-2 opacity-70" />
+          {event.startTime} - {event.endTime}
+        </div>
+        <div className="flex items-center">
+          <User className="h-4 w-4 mr-2 opacity-70" />
+          {event.createdBy?.name || "Faculty Admin"}
+        </div>
+      </CardContent>
 
-                  <CardFooter className="pt-2 block space-y-2">
-                    {event.isRegistered ? (
-                      <Button
-                        disabled
-                        variant="secondary"
-                        className="w-full bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 opacity-100"
-                      >
-                        <CheckCircle2 className="mr-2 h-4 w-4" /> Registered
-                      </Button>
-                    ) : isPast ? (
-                         <Button disabled variant="outline" className="w-full">
-                            <Clock className="mr-2 h-4 w-4" /> Registration Closed
-                        </Button>
-                    ) : (
-                        <div className="w-full space-y-2">
-                             {(!status || !status.message) && (
-                                <Button
-                                    onClick={() => handleRegisterMe(event._id)}
-                                    className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-                                    disabled={status?.loading}
-                                >
-                                    {status?.loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                    Register Me
-                                </Button>
-                             )}
+<CardFooter className="pt-2 block space-y-2">
+  {/* Scenario 1: User already registered and event is LIVE */}
+  {event.isRegistered && isOngoing ? (
+    <Button
+      onClick={() => window.location.href = `/attendance/claim/${event._id}`}
+      className="w-full bg-orange-600 hover:bg-orange-700 text-white animate-pulse shadow-md"
+    >
+      <CheckCircle2 className="mr-2 h-4 w-4" /> 
+      Verify Attendance (GPS)
+    </Button>
+  ) : 
+  
+  /* Scenario 2: User registered but event is not live yet */
+  event.isRegistered ? (
+    <Button
+      disabled
+      variant="secondary"
+      className="w-full bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 opacity-100"
+    >
+      <CheckCircle2 className="mr-2 h-4 w-4" /> Registered
+    </Button>
+  ) : 
 
-                            {/* Status Message */}
-                            {status && status.message && (
-                                <div className={`w-full text-center font-semibold p-2 rounded text-sm ${status.isError ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'}`}>
-                                    {status.message}
-                                </div>
-                            )}
-                        </div>
-                    )}
-                  </CardFooter>
-                </Card>
-              );
-            })
+  /* Scenario 3: Event has concluded */
+  isPast ? (
+    <Button disabled variant="outline" className="w-full text-slate-400">
+      <Clock className="mr-2 h-4 w-4" /> Registration Closed
+    </Button>
+  ) : 
+
+  /* Scenario 4: Standard Registration */
+  (
+    <div className="w-full space-y-2">
+      {(!status || !status.message) && (
+        <Button
+          onClick={() => handleRegisterMe(event._id)}
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+          disabled={status?.loading}
+        >
+          {status?.loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          Register for Event
+        </Button>
+      )}
+
+      {status && status.message && (
+        <div className={`w-full text-center font-semibold p-2 rounded text-sm ${status.isError ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'}`}>
+          {status.message}
+        </div>
+      )}
+    </div>
+  )}
+</CardFooter>
+    </Card>
+  );
+})
           )}
         </div>
       </div>
