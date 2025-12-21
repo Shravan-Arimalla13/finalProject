@@ -126,9 +126,20 @@ function BrowseEventsPage() {
 filteredEvents.map((event) => {
   const status = registerStatus[event._id];
   
-  // Use the dynamic status from the backend to determine styling
-  // Matches our backend logic: Upcoming, Ongoing, Completed
-  const currentStatus = event.status || "Upcoming"; 
+// CLIENT-SIDE FALLBACK: If backend 'status' is missing, calculate it here
+  let currentStatus = event.status; 
+  
+  if (!currentStatus) {
+    const now = new Date();
+    const eventDateStr = new Date(event.date).toISOString().split('T')[0];
+    const startTime = new Date(`${eventDateStr}T${event.startTime}:00`);
+    const endTime = new Date(`${eventDateStr}T${event.endTime}:00`);
+
+    if (now > endTime) currentStatus = "Completed";
+    else if (now >= startTime && now <= endTime) currentStatus = "Ongoing";
+    else currentStatus = "Upcoming";
+  }
+
   const isPast = currentStatus === "Completed";
   const isOngoing = currentStatus === "Ongoing";
 
