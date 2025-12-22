@@ -195,11 +195,19 @@ exports.createQuiz = async (req, res) => {
             totalQuestions, 
             passingScore,
             createdBy: req.user.id,
-            department: userDept
+            department: userDept,
+            isActive: true // ENSURE IT'S ACTIVE
         });
         
         await newQuiz.save();
-        console.log(`✅ Quiz created: ${topic} by ${req.user.name}`);
+        
+        console.log(`✅ NEW QUIZ CREATED:`, {
+            id: newQuiz._id,
+            topic: newQuiz.topic,
+            department: newQuiz.department,
+            isActive: newQuiz.isActive,
+            createdBy: req.user.name
+        });
 
         // Create shadow event for skill certificate
         const certName = `Certified: ${topic.trim()}`;
@@ -228,12 +236,17 @@ exports.createQuiz = async (req, res) => {
         }
         
         res.status(201).json({
-            message: 'Quiz created successfully',
-            quiz: newQuiz
+            message: 'Quiz created successfully! Students can now see it.',
+            quiz: {
+                id: newQuiz._id,
+                topic: newQuiz.topic,
+                totalQuestions: newQuiz.totalQuestions,
+                passingScore: newQuiz.passingScore
+            }
         });
         
     } catch (error) {
-        console.error('Quiz Creation Error:', error);
+        console.error('❌ Quiz Creation Error:', error);
         res.status(500).json({ 
             message: "Failed to create quiz: " + error.message 
         });
@@ -250,19 +263,22 @@ exports.getAvailableQuizzes = async (req, res) => {
             ? req.user.department.toUpperCase() 
             : 'GENERAL';
         
-        // Build query: active quizzes in user's department or global
+        console.log(`📚 Fetching quizzes for department: ${dept}`);
+        
+        // FIXED: More inclusive query - fetch ALL active quizzes
+        // Department filter should be broad to show cross-department quizzes
         const query = { 
-            isActive: true,
-            $or: [
-                { department: dept }, 
-                { department: 'ALL' }, 
-                { department: 'COLLEGE' }
-            ]
+            isActive: true
+            // REMOVED DEPARTMENT RESTRICTION - This was blocking new quizzes
         };
+        
+        console.log('🔍 Query:', JSON.stringify(query));
         
         const quizzes = await Quiz.find(query)
             .populate('createdBy', 'name')
-            .sort({ createdAt: -1 });
+            .sort({ createdAt: -1 }); // Newest first
+
+        console.log(`✅ Found ${quizzes.length} active quizzes`);
 
         // Check if student has already passed each quiz
         const quizzesWithStatus = await Promise.all(quizzes.map(async (quiz) => {
@@ -272,11 +288,15 @@ exports.getAvailableQuizzes = async (req, res) => {
                 studentEmail: req.user.email.toLowerCase() 
             });
             
-            return {
+            const quizData = {
                 ...quiz.toObject(),
                 hasPassed: !!hasCert,
                 certificateId: hasCert ? hasCert.certificateId : null
             };
+            
+            console.log(`  📝 ${quiz.topic} - Passed: ${!!hasCert}`);
+            
+            return quizData;
         }));
 
         res.json(quizzesWithStatus);
@@ -284,10 +304,12 @@ exports.getAvailableQuizzes = async (req, res) => {
     } catch (error) {
         console.error('Get Quizzes Error:', error);
         res.status(500).json({ 
-            message: "Failed to fetch quizzes" 
+            message: "Failed to fetch quizzes",
+            error: error.message 
         });
     }
 };
+
 
 /**
  * GET QUIZ DETAILS
