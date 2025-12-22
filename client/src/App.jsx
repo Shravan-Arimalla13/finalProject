@@ -1,4 +1,4 @@
-// client/src/App.jsx - CRITICAL FIX FOR POAP ROUTING
+// client/src/App.jsx - ABSOLUTE FINAL FIX
 import React, { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Toaster } from "@/components/ui/sonner"; 
@@ -54,6 +54,31 @@ function App() {
           <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
           <Route path="/" element={<LoginPage />} />
 
+          {/* 🔥 CRITICAL FIX: BOTH POAP ROUTES MUST EXIST 🔥 */}
+          {/* OLD URL (from existing QR codes in production) */}
+          <Route 
+            path="/poap/checkin" 
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['Student']}>
+                  <POAPCheckIn />
+                </RoleRoute>
+              </ProtectedRoute>
+            } 
+          />
+          
+          {/* NEW URL (for future QR codes) */}
+          <Route 
+            path="/poap-checkin" 
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['Student']}>
+                  <POAPCheckIn />
+                </RoleRoute>
+              </ProtectedRoute>
+            } 
+          />
+
           {/* --- Protected Routes --- */}
           <Route 
             path="/dashboard" 
@@ -88,19 +113,6 @@ function App() {
           <Route 
             path="/profile" 
             element={<RoleRoute allowedRoles={['Student']}><ProfilePage /></RoleRoute>}
-          />
-          
-          {/* 🔥 CRITICAL FIX: POAP Route - Changed from /poap/checkin to /poap-checkin */}
-          {/* This prevents route conflicts with the API */}
-          <Route 
-            path="/poap-checkin" 
-            element={
-              <ProtectedRoute>
-                <RoleRoute allowedRoles={['Student']}>
-                  <POAPCheckIn />
-                </RoleRoute>
-              </ProtectedRoute>
-            } 
           />
           
           {/* --- Faculty & SuperAdmin Routes --- */}
