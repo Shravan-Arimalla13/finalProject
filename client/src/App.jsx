@@ -1,6 +1,5 @@
-// In client/src/App.jsx
+// client/src/App.jsx - FIXED VERSION
 import React, { Suspense } from 'react';
-// --- CHANGE: Back to BrowserRouter ---
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Toaster } from "@/components/ui/sonner"; 
 
@@ -33,7 +32,8 @@ const AdminAnalyticsPage = React.lazy(() => import('./pages/AdminAnalyticsPage')
 const StudentSetPasswordPage = React.lazy(() => import('./pages/StudentSetPasswordPage'));
 const FacultyManagementPage = React.lazy(() => import('./pages/FacultyManagementPage'));
 const VerifierPortalPage = React.lazy(() => import('./pages/VerifierPortalPage'));
-const POAPCheckIn = React.lazy(() => import('./pages/POAPCheckIn')); // Ensure this is imported
+const POAPCheckIn = React.lazy(() => import('./pages/POAPCheckIn'));
+const ProfilePage = React.lazy(() => import('./pages/ProfilePage'));
 
 function App() {
   return (
@@ -86,18 +86,23 @@ function App() {
               </RoleRoute>
             } 
           />
+          <Route 
+            path="/profile" 
+            element={<RoleRoute allowedRoles={['Student']}><ProfilePage /></RoleRoute>}
+          />
           
-          {/* --- POAP Route (FIXED: Allow Admins too) --- */}
-          {/* <Route 
-  path="/poap/checkin" 
-  element={
-    <ProtectedRoute>
-      <POAPCheckIn />
-    </ProtectedRoute>
-  } 
-/> */}
-
-<Route path="/poap/checkin" element={<POAPCheckIn />} />
+          {/* --- CRITICAL FIX: POAP Route Now Protected --- */}
+          <Route 
+            path="/poap/checkin" 
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['Student']}>
+                  <POAPCheckIn />
+                </RoleRoute>
+              </ProtectedRoute>
+            } 
+          />
+          
           {/* --- Faculty & SuperAdmin Routes --- */}
           <Route 
             path="/events" 
@@ -125,7 +130,7 @@ function App() {
             path="/admin/analytics" 
             element={<SuperAdminRoute><AdminAnalyticsPage /></SuperAdminRoute>} 
           />
-           <Route 
+          <Route 
             path="/admin/faculty" 
             element={<SuperAdminRoute><FacultyManagementPage /></SuperAdminRoute>} 
           />

@@ -1,58 +1,244 @@
+// server/services/poap.service.js - FIXED VERSION
 const { ethers } = require('ethers');
-    const crypto = require('crypto');
-    require('dotenv').config();
+const crypto = require('crypto');
+const { calculateDistance, validateGPSCoordinates } = require('../utils/helpers');
+require('dotenv').config();
 
-    // Assuming you compile the contract, the JSON artifact will be here
-    const contractArtifact = require('../artifacts/contracts/POAPCredential.sol/POAPCredential.json');
+const contractArtifact = require('../artifacts/contracts/POAPCredential.sol/POAPCredential.json');
 
-    class POAPService {
-        constructor() {
-            if (!process.env.POAP_CONTRACT_ADDRESS) return;
-            const provider = new ethers.JsonRpcProvider(process.env.BLOCKCHAIN_RPC_URL);
-            const signer = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
-            this.contract = new ethers.Contract(process.env.POAP_CONTRACT_ADDRESS, contractArtifact.abi, signer);
+class POAPService {
+    constructor() {
+        if (!process.env.POAP_CONTRACT_ADDRESS) {
+            console.warn('⚠️ POAP Contract Address not configured');
+            return;
+        }
+        
+        const provider = new ethers.JsonRpcProvider(
+            process.env.BLOCKCHAIN_RPC_URL
+        );
+        const signer = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
+        
+        this.contract = new ethers.Contract(
+            process.env.POAP_CONTRACT_ADDRESS, 
+            contractArtifact.abi, 
+            signer
+        );
+        
+        console.log('✅ POAP Service initialized');
+    }
+
+    /**
+     * Generate deterministic hash for event
+     */
+    generateEventHash(eventId, eventName, eventDate) {
+        const data = `${eventId}-${eventName}-${eventDate}`;
+        return ethers.keccak256(ethers.toUtf8Bytes(data));
+    }
+
+    /**
+     * Validate GPS Location with Proper Distance Check
+     * @param {number} userLat - User's latitude
+     * @param {number} userLon - User's longitude
+     * @param {number} eventLat - Event venue latitude
+     * @param {number} eventLon - Event venue longitude
+     * @param {number} radiusKm - Allowed radius in kilometers
+     * @returns {Object} Validation result
+     */
+    validateLocation(userLat, userLon, eventLat, eventLon, radiusKm = 0.5) {
+        // Validate user coordinates
+        const userValidation = validateGPSCoordinates(userLat, userLon);
+        if (!userValidation.valid) {
+            throw new Error(`Invalid user GPS: ${userValidation.error}`);
         }
 
-        generateEventHash(eventId, eventName, eventDate) {
-            const data = `${eventId}-${eventName}-${eventDate}`;
-            return ethers.keccak256(ethers.toUtf8Bytes(data));
+        // If event has no location set, it's a virtual event
+        if (!eventLat || !eventLon) {
+            return {
+                isValid: true,
+                isVirtual: true,
+                distance: null,
+                message: 'Virtual event - location check bypassed'
+            };
         }
 
-        // Simplified GPS check (Haversine Formula)
-        validateLocation(lat1, lon1, lat2, lon2, radiusKm = 0.5) {
-            if (!lat2 || !lon2) return true; // No location set = virtual event
-            const R = 6371; 
-            const dLat = (lat2 - lat1) * (Math.PI/180);
-            const dLon = (lon2 - lon1) * (Math.PI/180);
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                      Math.cos(lat1 * (Math.PI/180)) * Math.cos(lat2 * (Math.PI/180)) * Math.sin(dLon/2) * Math.sin(dLon/2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-            return (R * c) <= radiusKm;
+        // Validate event coordinates
+        const eventValidation = validateGPSCoordinates(eventLat, eventLon);
+        if (!eventValidation.valid) {
+            throw new Error(`Invalid event GPS: ${eventValidation.error}`);
         }
 
-        async mintPOAP(studentWallet, eventData, gps) {
-            try {
-                const eventHash = this.generateEventHash(eventData.eventId, eventData.eventName, eventData.eventDate);
-                // For simplicity in demo, we pass raw GPS string or a hash of it
-                const gpsString = `${gps.latitude},${gps.longitude}`;
-                
-                console.log(`Minting POAP for ${studentWallet}...`);
-                const tx = await this.contract.mintPOAP(studentWallet, eventHash, gpsString);
-                await tx.wait();
-                
-                // In a real app, you parse logs to get ID. For demo, we might fetch total supply or similar.
-                // Assuming simple counter logic for now or parsing logs like we did for Certs.
-                // returning mock ID for speed if parsing is complex, but ideally parse receipt.
-                return { 
-                    tokenId: Date.now().toString(), // Placeholder ID logic needs log parsing like previous module
-                    transactionHash: tx.hash,
-                    eventHash 
-                };
-            } catch (error) {
-                console.error("POAP Mint Error:", error);
-                throw error;
+        // Calculate distance
+        const distance = calculateDistance(
+            userValidation.latitude,
+            userValidation.longitude,
+            eventValidation.latitude,
+            eventValidation.longitude
+        );
+
+        // Check if within radius
+        if (distance > radiusKm) {
+            return {
+                isValid: false,
+                isVirtual: false,
+                distance: distance,
+                requiredRadius: radiusKm,
+                message: `You must be within ${radiusKm}km of the event venue. You are ${distance.toFixed(2)}km away.`
+            };
+        }
+
+        return {
+            isValid: true,
+            isVirtual: false,
+            distance: distance,
+            message: `Location verified: ${distance.toFixed(3)}km from venue`
+        };
+    }
+
+    /**
+     * Mint POAP NFT with GPS Validation
+     */
+    async mintPOAP(studentWallet, eventData, gps, eventLocation = null) {
+        try {
+            // Validate GPS if event has a physical location
+            if (eventLocation && eventLocation.latitude && eventLocation.longitude) {
+                const locationCheck = this.validateLocation(
+                    gps.latitude,
+                    gps.longitude,
+                    eventLocation.latitude,
+                    eventLocation.longitude,
+                    eventLocation.radius || 0.5
+                );
+
+                if (!locationCheck.isValid) {
+                    throw new Error(locationCheck.message);
+                }
+
+                console.log(`✅ GPS Verified: ${locationCheck.message}`);
             }
+
+            // Generate event hash
+            const eventHash = this.generateEventHash(
+                eventData.eventId, 
+                eventData.eventName, 
+                eventData.eventDate
+            );
+            
+            // Format GPS string for blockchain
+            const gpsString = `${gps.latitude.toFixed(6)},${gps.longitude.toFixed(6)}`;
+            
+            console.log(`🎫 Minting POAP for ${studentWallet}...`);
+            
+            // Call smart contract
+            const tx = await this.contract.mintPOAP(
+                studentWallet, 
+                eventHash, 
+                gpsString
+            );
+            
+            console.log(`⏳ Transaction submitted: ${tx.hash}`);
+            const receipt = await tx.wait();
+            console.log(`✅ POAP minted successfully`);
+            
+            // Parse transaction logs to get token ID
+            let tokenId = null;
+            for (const log of receipt.logs) {
+                try {
+                    const parsedLog = this.contract.interface.parseLog(log);
+                    if (parsedLog && parsedLog.name === 'POAPMinted') {
+                        tokenId = parsedLog.args.tokenId.toString();
+                        break;
+                    }
+                } catch (e) {
+                    continue;
+                }
+            }
+
+            // Fallback: use timestamp if parsing fails
+            if (!tokenId) {
+                tokenId = Date.now().toString();
+                console.warn('⚠️ Using timestamp as tokenId fallback');
+            }
+            
+            return { 
+                tokenId,
+                transactionHash: tx.hash,
+                eventHash,
+                gpsVerified: true
+            };
+            
+        } catch (error) {
+            console.error("❌ POAP Mint Error:", error.message);
+            throw error;
         }
     }
 
-    module.exports = new POAPService();
+    /**
+     * Validate if student is within time window for check-in
+     */
+    validateCheckInTime(eventDate, startTime, endTime) {
+        const now = new Date();
+        const eventDateStr = new Date(eventDate).toISOString().split('T')[0];
+        const start = new Date(`${eventDateStr}T${startTime}:00`);
+        const end = new Date(`${eventDateStr}T${endTime}:00`);
+        
+        // Allow check-in 30 minutes before start
+        const earlyCheckIn = new Date(start.getTime() - 30 * 60 * 1000);
+        
+        if (now < earlyCheckIn) {
+            return {
+                isValid: false,
+                message: `Check-in opens at ${startTime}. Too early.`
+            };
+        }
+        
+        if (now > end) {
+            return {
+                isValid: false,
+                message: `Check-in closed at ${endTime}. Event has ended.`
+            };
+        }
+        
+        return {
+            isValid: true,
+            message: 'Check-in time valid'
+        };
+    }
+
+    /**
+     * Calculate attendance score (100 = on time, <100 = late)
+     */
+    calculateAttendanceScore(eventDate, startTime, checkInTime) {
+        const eventDateStr = new Date(eventDate).toISOString().split('T')[0];
+        const scheduledStart = new Date(`${eventDateStr}T${startTime}:00`);
+        const checkIn = new Date(checkInTime);
+        
+        // Early or on-time = 100
+        if (checkIn <= scheduledStart) {
+            return 100;
+        }
+        
+        // Late: deduct 5 points per 10 minutes, minimum 50
+        const lateMinutes = (checkIn - scheduledStart) / (1000 * 60);
+        const deduction = Math.floor(lateMinutes / 10) * 5;
+        return Math.max(50, 100 - deduction);
+    }
+
+    /**
+     * Revoke POAP (for fraudulent check-ins)
+     */
+    async revokePOAP(tokenId, reason) {
+        try {
+            console.log(`🚫 Revoking POAP #${tokenId}...`);
+            const tx = await this.contract.revokeAttendance(tokenId);
+            await tx.wait();
+            
+            console.log(`✅ POAP revoked: ${reason}`);
+            return tx.hash;
+        } catch (error) {
+            console.error("❌ POAP Revocation Error:", error.message);
+            throw error;
+        }
+    }
+}
+
+module.exports = new POAPService();

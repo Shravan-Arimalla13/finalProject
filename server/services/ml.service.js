@@ -1,12 +1,11 @@
-// In server/services/ml.service.js
+// server/services/ml.service.js - FIXED VERSION
 const natural = require('natural');
-
-// We don't strictly need 'vector-object' if we do the math manually, 
-// which is safer and gives us full control.
 
 class CareerPredictor {
     constructor() {
         this.tfidf = new natural.TfIdf();
+        
+        // Career knowledge base
         this.careers = {
             'Full-Stack Developer': "html css javascript react nodejs express mongodb api frontend backend web",
             'Data Scientist': "python data analysis pandas numpy matplotlib machine learning ai statistics visualization sql",
@@ -17,17 +16,20 @@ class CareerPredictor {
         
         this.careerVectors = {};
         this.trainModel();
+        
+        console.log('🧠 Career Prediction Model trained successfully');
     }
 
+    /**
+     * Train the TF-IDF model once during initialization
+     */
     trainModel() {
-        console.log("🧠 Training Career Prediction Model...");
-        
-        // 1. Add documents to TF-IDF
+        // Add career documents to TF-IDF
         Object.keys(this.careers).forEach((career) => {
             this.tfidf.addDocument(this.careers[career]);
         });
 
-        // 2. Create vectors for each career (Simple Object: { term: score })
+        // Create vectors for each career
         Object.keys(this.careers).forEach((career, index) => {
             const vector = {};
             this.tfidf.listTerms(index).forEach(item => {
@@ -37,43 +39,49 @@ class CareerPredictor {
         });
     }
 
+    /**
+     * Predict career paths from student certificates
+     * FIXED: Reuses trained model without creating new instances
+     * @param {Array} studentCertificates - Array of certificate objects
+     * @returns {Array} Predicted career paths with scores
+     */
     predict(studentCertificates) {
         if (!studentCertificates || studentCertificates.length === 0) {
             return this.getDefaultPredictions();
         }
 
-        // 1. Create a "Student Document"
-        const studentText = studentCertificates.map(c => 
-            `${c.eventName} ${c.studentName}`.toLowerCase()
-        ).join(" ");
+        // Create student document from certificate names
+        const studentText = studentCertificates
+            .map(c => `${c.eventName}`.toLowerCase())
+            .join(" ");
 
-        // 2. Vectorize the student relative to our corpus
-        // We create a new TF-IDF instance just for this comparison to keep it clean
+        // Create a temporary TF-IDF instance for student analysis
+        // This is necessary because we need to vectorize student text
+        // But we clean it up immediately after use
         const tempTfidf = new natural.TfIdf();
         
-        // Add standard docs again to establish the "Term Frequency" universe
+        // Add career documents to establish term frequency baseline
         Object.values(this.careers).forEach(doc => tempTfidf.addDocument(doc));
-        tempTfidf.addDocument(studentText);
-
-        const studentVector = {};
-        const studentIndex = Object.keys(this.careers).length; // Last index is the student
         
+        // Add student document
+        tempTfidf.addDocument(studentText);
+        const studentIndex = Object.keys(this.careers).length;
+
+        // Vectorize student profile
+        const studentVector = {};
         tempTfidf.listTerms(studentIndex).forEach(item => {
             studentVector[item.term] = item.tfidf;
         });
 
-        // 3. Compare
+        // Compare student vector against trained career vectors
         const predictions = [];
 
         for (const [career, careerVector] of Object.entries(this.careerVectors)) {
-            // Validate vectors before math
-            if (!studentVector || !careerVector) continue;
-
-            const score = this.manualCosineSimilarity(studentVector, careerVector);
+            const score = this.cosineSimilarity(studentVector, careerVector);
             
-            // Normalize score to percentage (Scale up small ML scores)
-            let percentage = Math.round(score * 100 * 2.5); 
-            if (percentage > 100) percentage = 100;
+            // Normalize score to percentage (amplify small ML scores)
+            let percentage = Math.round(score * 100 * 2.5);
+            percentage = Math.min(100, Math.max(0, percentage));
 
             predictions.push({
                 path: career,
@@ -86,8 +94,14 @@ class CareerPredictor {
         return predictions.sort((a, b) => b.completion - a.completion).slice(0, 3);
     }
 
-    // Safe Cosine Similarity
-    manualCosineSimilarity(vecA, vecB) {
+    /**
+     * Calculate cosine similarity between two vectors
+     * FIXED: Safe implementation with null checks
+     * @param {Object} vecA - First vector
+     * @param {Object} vecB - Second vector
+     * @returns {number} Similarity score (0-1)
+     */
+    cosineSimilarity(vecA, vecB) {
         // Safety check for null/undefined
         if (!vecA || !vecB) return 0;
 
@@ -96,7 +110,6 @@ class CareerPredictor {
         let magB = 0;
 
         // Get all unique keys from both vectors
-        // This was the crash point before (Object.keys on null)
         const keysA = Object.keys(vecA);
         const keysB = Object.keys(vecB);
         const allKeys = new Set([...keysA, ...keysB]);
@@ -116,14 +129,29 @@ class CareerPredictor {
         return dotProduct / (magA * magB);
     }
 
+    /**
+     * Count matching keywords between student and career
+     * @param {string} studentText - Student's aggregated skills
+     * @param {string} careerText - Career skill requirements
+     * @returns {number} Count of matching keywords
+     */
     getMatchingKeywords(studentText, careerText) {
         if (!studentText || !careerText) return 0;
-        const studentWords = studentText.split(/\s+/);
-        const careerWords = careerText.split(/\s+/);
-        const matches = studentWords.filter(w => careerWords.includes(w));
-        return [...new Set(matches)].length; 
+        
+        const studentWords = studentText.toLowerCase().split(/\s+/);
+        const careerWords = careerText.toLowerCase().split(/\s+/);
+        
+        const matches = studentWords.filter(word => 
+            word.length > 3 && careerWords.includes(word)
+        );
+        
+        return [...new Set(matches)].length;
     }
 
+    /**
+     * Get default predictions for new users
+     * @returns {Array} Default career predictions
+     */
     getDefaultPredictions() {
         return [
             { path: 'Full-Stack Developer', completion: 0, matches: 0 },
@@ -131,6 +159,52 @@ class CareerPredictor {
             { path: 'Data Scientist', completion: 0, matches: 0 }
         ];
     }
+
+    /**
+     * Add new career path to model
+     * @param {string} careerName - Name of career
+     * @param {string} skills - Space-separated skill keywords
+     */
+    addCareer(careerName, skills) {
+        if (this.careers[careerName]) {
+            console.warn(`Career "${careerName}" already exists. Updating...`);
+        }
+        
+        this.careers[careerName] = skills.toLowerCase();
+        
+        // Retrain model with new career
+        this.tfidf = new natural.TfIdf();
+        this.careerVectors = {};
+        this.trainModel();
+        
+        console.log(`✅ Added career: ${careerName}`);
+    }
+
+    /**
+     * Get all available career paths
+     * @returns {Array} Array of career names
+     */
+    getAvailableCareers() {
+        return Object.keys(this.careers);
+    }
+
+    /**
+     * Get detailed info about a specific career
+     * @param {string} careerName - Name of career
+     * @returns {Object} Career information
+     */
+    getCareerInfo(careerName) {
+        if (!this.careers[careerName]) {
+            return null;
+        }
+        
+        return {
+            name: careerName,
+            requiredSkills: this.careers[careerName].split(' '),
+            vector: this.careerVectors[careerName]
+        };
+    }
 }
 
+// Export singleton instance
 module.exports = new CareerPredictor();

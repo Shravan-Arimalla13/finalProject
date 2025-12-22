@@ -38,7 +38,7 @@ exports.createEvent = async (req, res) => {
             department: userDept,
             isPublic: isPublic || false,
             certificatesIssued: false,
-            certificateConfig: certificateConfig 
+            certificateConfig: certificateConfig
         });
 
         const savedEvent = await newEvent.save();

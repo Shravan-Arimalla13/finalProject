@@ -74,7 +74,13 @@ const eventSchema = new Schema({
         customSignatureText: { type: String, default: 'Authorized Signature' }
     },
     // ---------------------------------------------
-    
+    // In server/models/event.model.js
+// Add this field:
+eventStatus: {
+    type: String,
+    enum: ['Upcoming', 'Ongoing', 'Completed'],
+    default: 'Upcoming'
+},
 // --- NEW: POAP Location Configuration ---
     location: {
         latitude: { type: Number },
