@@ -8,9 +8,6 @@ const { getAddress } = require('ethers/address');
 const { sendStudentActivation, sendPasswordReset } = require('../utils/mailer'); 
 
 const { normalizeUSN, normalizeDept, normalizeEmail } = require('../utils/helpers');
-// Helper function to handle USN normalization for consistency
-const normalizeUSN = (usn) => (usn ? usn.toUpperCase() : null);
-const normalizeDept = (dept) => (dept ? dept.toUpperCase() : 'GENERAL');
 
 
 // --- 1. FACULTY INVITE: Claim Account ---
