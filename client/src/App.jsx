@@ -1,9 +1,8 @@
-// client/src/App.jsx - FIXED VERSION
+// client/src/App.jsx - CRITICAL FIX FOR POAP ROUTING
 import React, { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Toaster } from "@/components/ui/sonner"; 
 
-// --- Component Imports ---
 import Navbar from './components/Navbar'; 
 import ProtectedRoute from './components/ProtectedRoute';
 import SuperAdminRoute from './components/SuperAdminRoute';
@@ -11,7 +10,7 @@ import RoleRoute from './components/RoleRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 import Loading from './components/Loading'; 
 
-// --- LAZY LOAD PAGES ---
+// LAZY LOAD PAGES
 const LoginPage = React.lazy(() => import('./pages/LoginPage'));
 const DashboardPage = React.lazy(() => import('./pages/DashboardPage'));
 const StudentManagementPage = React.lazy(() => import('./pages/StudentManagementPage'));
@@ -91,9 +90,10 @@ function App() {
             element={<RoleRoute allowedRoles={['Student']}><ProfilePage /></RoleRoute>}
           />
           
-          {/* --- CRITICAL FIX: POAP Route Now Protected --- */}
+          {/* 🔥 CRITICAL FIX: POAP Route - Changed from /poap/checkin to /poap-checkin */}
+          {/* This prevents route conflicts with the API */}
           <Route 
-            path="/poap/checkin" 
+            path="/poap-checkin" 
             element={
               <ProtectedRoute>
                 <RoleRoute allowedRoles={['Student']}>

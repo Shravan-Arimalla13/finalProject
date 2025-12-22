@@ -1,4 +1,4 @@
-// server/controllers/quiz.controller.js - COMPLETE FIXED VERSION
+// server/controllers/quiz.controller.js - FIXED QUOTA HANDLING
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const Quiz = require('../models/quiz.model');
 const Certificate = require('../models/certificate.model');
@@ -11,39 +11,83 @@ const { sendCertificateIssued } = require('../utils/mailer');
 
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const MODEL_NAME = "gemini-2.0-flash-exp";
+const MODEL_NAME = "gemini-1.5-flash"; // Changed to stable model
 
-// Configuration for AI generation
-const AI_CONFIG = {
-    maxRetries: 3,
-    timeoutMs: 15000,
-    temperature: 0.7, // Balance between creativity and consistency
-    maxOutputTokens: 500
+// Fallback Question Bank (used when API quota exceeded)
+const FALLBACK_QUESTIONS = {
+    Easy: [
+        {
+            question: "What does HTML stand for?",
+            options: ["Hyper Text Markup Language", "High Tech Modern Language", "Home Tool Markup Language", "Hyperlinks and Text Markup Language"],
+            correctAnswer: "Hyper Text Markup Language",
+            explanation: "HTML stands for Hyper Text Markup Language, which is the standard markup language for creating web pages."
+        },
+        {
+            question: "Which symbol is used for comments in JavaScript?",
+            options: ["//", "#", "/* */", "Both // and /* */"],
+            correctAnswer: "Both // and /* */",
+            explanation: "JavaScript supports both single-line comments (//) and multi-line comments (/* */)."
+        }
+    ],
+    Medium: [
+        {
+            question: "What is the purpose of the 'use strict' directive in JavaScript?",
+            options: ["Enables strict mode for better error handling", "Makes code run faster", "Allows use of future JavaScript features", "Prevents variable declaration"],
+            correctAnswer: "Enables strict mode for better error handling",
+            explanation: "The 'use strict' directive enables strict mode, which catches common coding errors and prevents certain actions."
+        },
+        {
+            question: "In React, what is the Virtual DOM?",
+            options: ["A lightweight copy of the actual DOM", "A new browser API", "A database", "A styling framework"],
+            correctAnswer: "A lightweight copy of the actual DOM",
+            explanation: "The Virtual DOM is React's representation of the UI in memory, allowing efficient updates to the actual DOM."
+        }
+    ],
+    Hard: [
+        {
+            question: "What is a closure in JavaScript?",
+            options: ["A function with access to its outer scope", "A way to close browser windows", "A method to end loops", "A type of variable"],
+            correctAnswer: "A function with access to its outer scope",
+            explanation: "A closure is a function that retains access to variables from its outer (enclosing) scope, even after that scope has finished executing."
+        },
+        {
+            question: "What is the difference between == and === in JavaScript?",
+            options: ["=== checks type and value, == only checks value", "They are the same", "== is faster", "=== is deprecated"],
+            correctAnswer: "=== checks type and value, == only checks value",
+            explanation: "The === operator checks for both value and type equality (strict equality), while == performs type coercion before comparison."
+        }
+    ]
 };
 
 /**
- * Clean AI-generated JSON response
- * Removes markdown code blocks and extra whitespace
- * @param {string} text - Raw AI response
- * @returns {string} Cleaned JSON string
+ * Get fallback question when API fails
  */
-const cleanJSON = (text) => {
-    if (!text) return "";
-    return text
-        .replace(/```json/g, '')
-        .replace(/```/g, '')
-        .trim();
-};
+function getFallbackQuestion(difficulty, previousQuestions = []) {
+    const pool = FALLBACK_QUESTIONS[difficulty] || FALLBACK_QUESTIONS.Medium;
+    
+    // Filter out already asked questions
+    const askedTexts = previousQuestions.map(q => q.questionText);
+    const available = pool.filter(q => !askedTexts.includes(q.question));
+    
+    // If all questions used, reset pool
+    const finalPool = available.length > 0 ? available : pool;
+    
+    // Random selection
+    const selected = finalPool[Math.floor(Math.random() * finalPool.length)];
+    
+    return {
+        question: selected.question,
+        options: selected.options,
+        correctAnswer: selected.correctAnswer,
+        explanation: selected.explanation,
+        difficulty: difficulty
+    };
+}
 
 /**
- * Generate AI question with comprehensive retry logic
- * Implements timeout, exponential backoff, and error categorization
- * @param {string} prompt - The generation prompt
- * @param {number} maxRetries - Maximum retry attempts
- * @returns {Promise<string>} Generated text
- * @throws {Error} If all attempts fail
+ * Generate question with quota-aware error handling
  */
-async function generateQuestionWithRetry(prompt, maxRetries = AI_CONFIG.maxRetries) {
+async function generateQuestionWithRetry(prompt, maxRetries = 2) {
     let lastError = null;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -53,46 +97,44 @@ async function generateQuestionWithRetry(prompt, maxRetries = AI_CONFIG.maxRetri
             const model = genAI.getGenerativeModel({ 
                 model: MODEL_NAME,
                 generationConfig: {
-                    temperature: AI_CONFIG.temperature,
-                    maxOutputTokens: AI_CONFIG.maxOutputTokens
+                    temperature: 0.7,
+                    maxOutputTokens: 500
                 }
             });
             
-            // Create timeout wrapper to prevent hanging requests
             const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('AI request timeout')), AI_CONFIG.timeoutMs);
+                setTimeout(() => reject(new Error('AI request timeout')), 10000);
             });
             
             const generationPromise = model.generateContent(prompt);
-            
-            // Race between generation and timeout
             const result = await Promise.race([generationPromise, timeoutPromise]);
             const response = await result.response;
             const text = response.text();
             
-            // Validate response
             if (!text || text.length < 50) {
                 throw new Error('AI response too short or empty');
             }
             
-            console.log(`✅ AI generated question successfully (attempt ${attempt})`);
+            console.log(`✅ AI generated question successfully`);
             return text;
             
         } catch (error) {
             lastError = error;
-            console.error(`❌ AI Generation Attempt ${attempt} Failed:`, error.message);
+            const errorMsg = error.message.toLowerCase();
             
-            // Categorize error types
-            const errorType = categorizeAIError(error);
-            console.error(`   Error Type: ${errorType}`);
+            console.error(`❌ AI Attempt ${attempt} Failed:`, error.message);
             
-            // Don't retry for certain error types
-            if (errorType === 'QUOTA_EXCEEDED' || errorType === 'INVALID_API_KEY') {
-                console.error('   Non-retryable error detected, stopping attempts');
-                throw new Error(`AI service error: ${errorType}`);
+            // Check for quota exceeded
+            if (errorMsg.includes('quota') || errorMsg.includes('429') || errorMsg.includes('rate limit')) {
+                console.error('🚫 QUOTA EXCEEDED - Switching to fallback questions');
+                throw new Error('QUOTA_EXCEEDED');
             }
             
-            // Wait before retry with exponential backoff (2s, 4s, 8s)
+            if (errorMsg.includes('api key') || errorMsg.includes('authentication')) {
+                throw new Error('INVALID_API_KEY');
+            }
+            
+            // Retry with backoff
             if (attempt < maxRetries) {
                 const waitTime = Math.pow(2, attempt) * 1000;
                 console.log(`⏳ Retrying in ${waitTime/1000}s...`);
@@ -101,39 +143,19 @@ async function generateQuestionWithRetry(prompt, maxRetries = AI_CONFIG.maxRetri
         }
     }
     
-    // All attempts exhausted
-    throw new Error(`AI generation failed after ${maxRetries} attempts: ${lastError.message}`);
+    throw lastError;
 }
 
 /**
- * Categorize AI errors for better handling
- * @param {Error} error - The error object
- * @returns {string} Error category
+ * Clean AI JSON response
  */
-function categorizeAIError(error) {
-    const message = error.message.toLowerCase();
-    
-    if (message.includes('quota') || message.includes('rate limit')) {
-        return 'QUOTA_EXCEEDED';
-    }
-    if (message.includes('api key') || message.includes('authentication')) {
-        return 'INVALID_API_KEY';
-    }
-    if (message.includes('timeout')) {
-        return 'TIMEOUT';
-    }
-    if (message.includes('network') || message.includes('econnrefused')) {
-        return 'NETWORK_ERROR';
-    }
-    
-    return 'UNKNOWN';
-}
+const cleanJSON = (text) => {
+    if (!text) return "";
+    return text.replace(/```json/g, '').replace(/```/g, '').trim();
+};
 
 /**
- * Validate question data structure
- * @param {Object} questionData - Parsed question object
- * @returns {boolean} True if valid
- * @throws {Error} If invalid structure
+ * Validate question structure
  */
 function validateQuestionData(questionData) {
     const required = ['question', 'options', 'correctAnswer', 'explanation'];
@@ -154,6 +176,99 @@ function validateQuestionData(questionData) {
     
     return true;
 }
+
+// ============================================
+// NEXT QUESTION - WITH FALLBACK
+// ============================================
+exports.nextQuestion = async (req, res) => {
+    const { quizId, history } = req.body;
+
+    try {
+        const quiz = await Quiz.findById(quizId);
+        if (!quiz) {
+            return res.status(404).json({ message: "Quiz not found" });
+        }
+
+        const currentQIndex = history ? history.length : 0;
+        
+        // Determine difficulty
+        let difficulty = 'Medium';
+        const phase1Limit = Math.floor(quiz.totalQuestions * 0.33);
+
+        if (currentQIndex < phase1Limit) {
+            difficulty = 'Easy';
+        } else if (history && history.length >= 3) {
+            const recent = history.slice(-3);
+            const correctCount = recent.filter(h => h.isCorrect).length;
+            
+            if (correctCount === 3) difficulty = 'Hard';
+            else if (correctCount >= 1) difficulty = 'Medium';
+            else difficulty = 'Easy';
+        }
+
+        // Build prompt
+        const previousQuestionsText = history 
+            ? history.map(h => h.questionText).slice(-5).join(" | ") 
+            : "";
+
+        const prompt = `
+You are an expert educational content creator. Generate ONE multiple-choice question about "${quiz.topic}".
+
+Difficulty Level: ${difficulty}
+Question Number: ${currentQIndex + 1}/${quiz.totalQuestions}
+
+IMPORTANT CONSTRAINTS:
+- DO NOT repeat concepts from these previous questions: [${previousQuestionsText}]
+- The question must be ${difficulty} difficulty
+- Focus on practical, real-world application
+- All four options should be plausible
+
+REQUIRED OUTPUT FORMAT (JSON ONLY):
+{
+    "question": "Clear question text",
+    "options": ["Option A", "Option B", "Option C", "Option D"],
+    "correctAnswer": "Exact text of correct option",
+    "explanation": "Brief 1-2 sentence explanation"
+}
+
+Generate now:`.trim();
+
+        let questionData;
+        
+        try {
+            // Try AI generation first
+            const text = await generateQuestionWithRetry(prompt);
+            const cleaned = cleanJSON(text);
+            questionData = JSON.parse(cleaned);
+            validateQuestionData(questionData);
+            
+        } catch (error) {
+            // If quota exceeded or AI fails, use fallback
+            if (error.message === 'QUOTA_EXCEEDED' || error.message.includes('quota')) {
+                console.warn('⚠️ Using fallback question bank due to API quota');
+                questionData = getFallbackQuestion(difficulty, history || []);
+            } else {
+                throw error;
+            }
+        }
+        
+        // Add metadata
+        questionData.difficulty = difficulty;
+        questionData.questionNumber = currentQIndex + 1;
+        
+        res.json(questionData);
+
+    } catch (error) {
+        console.error("Question Generation Error:", error);
+        
+        res.status(500).json({ 
+            message: 'Failed to generate question. Please try again.',
+            retryable: true
+        });
+    }
+};
+
+// [Rest of the functions remain the same: createQuiz, getAvailableQuizzes, getQuizDetails, submitQuiz]
 
 // ============================================
 // CONTROLLER FUNCTIONS
