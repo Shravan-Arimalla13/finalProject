@@ -1,4 +1,4 @@
-// client/src/App.jsx - ABSOLUTE FINAL FIX
+// client/src/App.jsx
 import React, { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Toaster } from "@/components/ui/sonner"; 
@@ -41,7 +41,7 @@ function App() {
       
       <Suspense fallback={<Loading />}>
         <Routes>
-          {/* --- Public Routes --- */}
+          {/* --- 1. Public Routes --- */}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/activate" element={<StudentActivationPage />} />
           <Route path="/activate-account/:token" element={<StudentSetPasswordPage />} />
@@ -54,32 +54,14 @@ function App() {
           <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
           <Route path="/" element={<LoginPage />} />
 
-          {/* 🔥 CRITICAL FIX: BOTH POAP ROUTES MUST EXIST 🔥 */}
-          {/* OLD URL (from existing QR codes in production) */}
-          <Route 
-            path="/poap/checkin" 
-            element={
-              <ProtectedRoute>
-                <RoleRoute allowedRoles={['Student']}>
-                  <POAPCheckIn />
-                </RoleRoute>
-              </ProtectedRoute>
-            } 
-          />
-          
-          {/* NEW URL (for future QR codes) */}
-          <Route 
-            path="/poap-checkin" 
-            element={
-              <ProtectedRoute>
-                <RoleRoute allowedRoles={['Student']}>
-                  <POAPCheckIn />
-                </RoleRoute>
-              </ProtectedRoute>
-            } 
-          />
+          {/* --- 2. POAP Routes (Special Handling) --- 
+            We make these public so the POAPCheckIn component can capture the 
+            URL parameters before asking the user to login.
+          */}
+          <Route path="/poap/checkin" element={<POAPCheckIn />} />
+          <Route path="/poap-checkin" element={<POAPCheckIn />} />
 
-          {/* --- Protected Routes --- */}
+          {/* --- 3. Protected Routes (Generic) --- */}
           <Route 
             path="/dashboard" 
             element={
@@ -91,67 +73,127 @@ function App() {
             } 
           />
           
-          {/* --- Student Routes --- */}
+          {/* --- 4. Student Routes --- */}
           <Route 
             path="/browse-events"
-            element={<RoleRoute allowedRoles={['Student']}><BrowseEventsPage /></RoleRoute>}
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['Student']}>
+                  <BrowseEventsPage />
+                </RoleRoute>
+              </ProtectedRoute>
+            }
           />
           <Route 
             path="/student/quizzes" 
-            element={<RoleRoute allowedRoles={['Student']}><StudentQuizList /></RoleRoute>} 
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['Student']}>
+                  <StudentQuizList />
+                </RoleRoute>
+              </ProtectedRoute>
+            } 
           />
           <Route 
             path="/take-quiz/:quizId" 
             element={
-              <RoleRoute allowedRoles={['Student']}>
-                <ErrorBoundary>
-                  <TakeQuizPage />
-                </ErrorBoundary>
-              </RoleRoute>
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['Student']}>
+                  <ErrorBoundary>
+                    <TakeQuizPage />
+                  </ErrorBoundary>
+                </RoleRoute>
+              </ProtectedRoute>
             } 
           />
           <Route 
             path="/profile" 
-            element={<RoleRoute allowedRoles={['Student']}><ProfilePage /></RoleRoute>}
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['Student']}>
+                  <ProfilePage />
+                </RoleRoute>
+              </ProtectedRoute>
+            }
           />
           
-          {/* --- Faculty & SuperAdmin Routes --- */}
+          {/* --- 5. Faculty & SuperAdmin Routes --- */}
           <Route 
             path="/events" 
-            element={<RoleRoute allowedRoles={['SuperAdmin', 'Faculty']}><EventManagementPage /></RoleRoute>} 
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['SuperAdmin', 'Faculty']}>
+                  <EventManagementPage />
+                </RoleRoute>
+              </ProtectedRoute>
+            } 
           />
           <Route 
             path="/faculty/quiz" 
-            element={<RoleRoute allowedRoles={['SuperAdmin', 'Faculty']}><FacultyQuizManager /></RoleRoute>} 
+            element={
+              <ProtectedRoute>
+                <RoleRoute allowedRoles={['SuperAdmin', 'Faculty']}>
+                  <FacultyQuizManager />
+                </RoleRoute>
+              </ProtectedRoute>
+            } 
           />
 
-          {/* --- SuperAdmin Only Routes --- */}
+          {/* --- 6. SuperAdmin Only Routes --- */}
           <Route 
             path="/admin/invite" 
-            element={<SuperAdminRoute><AdminInvitePage /></SuperAdminRoute>} 
+            element={
+              <ProtectedRoute>
+                <SuperAdminRoute>
+                  <AdminInvitePage />
+                </SuperAdminRoute>
+              </ProtectedRoute>
+            } 
           />
           <Route 
             path="/admin/roster" 
-            element={<SuperAdminRoute><AdminRosterPage /></SuperAdminRoute>} 
+            element={
+              <ProtectedRoute>
+                <SuperAdminRoute>
+                  <AdminRosterPage />
+                </SuperAdminRoute>
+              </ProtectedRoute>
+            } 
           />
           <Route 
             path="/admin/students" 
-            element={<SuperAdminRoute><StudentManagementPage /></SuperAdminRoute>} 
+            element={
+              <ProtectedRoute>
+                <SuperAdminRoute>
+                  <StudentManagementPage />
+                </SuperAdminRoute>
+              </ProtectedRoute>
+            } 
           />
           <Route 
             path="/admin/analytics" 
-            element={<SuperAdminRoute><AdminAnalyticsPage /></SuperAdminRoute>} 
+            element={
+              <ProtectedRoute>
+                <SuperAdminRoute>
+                  <AdminAnalyticsPage />
+                </SuperAdminRoute>
+              </ProtectedRoute>
+            } 
           />
           <Route 
             path="/admin/faculty" 
-            element={<SuperAdminRoute><FacultyManagementPage /></SuperAdminRoute>} 
+            element={
+              <ProtectedRoute>
+                <SuperAdminRoute>
+                  <FacultyManagementPage />
+                </SuperAdminRoute>
+              </ProtectedRoute>
+            } 
           />
-
         </Routes>
       </Suspense>
 
       <Toaster position="top-center" richColors />
-      
     </Router>
   );
 }
