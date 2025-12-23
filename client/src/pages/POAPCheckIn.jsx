@@ -33,6 +33,14 @@ const POAPCheckIn = () => {
     useEffect(() => {
         if (!isAuthenticated()) {
             console.log('❌ User not authenticated');
+            <Button 
+    onClick={() => navigate('/login', { 
+        state: { from: `/poap-checkin?eventId=${eventId}&token=${token}` } 
+    })} 
+    className="w-full"
+>
+    Go to Login
+</Button>
             return;
         }
         

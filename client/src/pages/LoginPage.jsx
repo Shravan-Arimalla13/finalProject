@@ -1,6 +1,7 @@
 // In client/src/pages/LoginPage.jsx
 import React, { useState } from 'react';
-import { useNavigate, Navigate, Link } from 'react-router-dom';
+// Added useLocation to the imports
+import { useNavigate, Navigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';
 import { ethers } from 'ethers';
@@ -13,7 +14,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Wallet, KeyRound } from 'lucide-react';
-// ---
 
 // --- COMPONENT: PASSWORD LOGIN FORM ---
 const PasswordLoginForm = ({ onLoginSuccess }) => {
@@ -27,7 +27,6 @@ const PasswordLoginForm = ({ onLoginSuccess }) => {
         setError(null);
         setLoading(true);
         try {
-            // This works for Students, Faculty, AND Admins
             const response = await api.post('/users/login', { email, password });
             onLoginSuccess(response.data.user, response.data.token);
         } catch (err) {
@@ -41,7 +40,7 @@ const PasswordLoginForm = ({ onLoginSuccess }) => {
         <form onSubmit={handleSubmit}>
             <CardContent className="space-y-4 pt-4">
                 <p className="text-sm text-slate-500 text-center mb-4">
-                    Use your Email and Password. (Admins, Faculty, and first-time Students)
+                    Use your Email and Password.
                 </p>
                 {error && (
                     <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded text-sm" role="alert">
@@ -53,15 +52,16 @@ const PasswordLoginForm = ({ onLoginSuccess }) => {
                     <Input id="email" type="email" placeholder="name@college.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
                 </div>
                 <div className="space-y-2">
-                    <Label htmlFor="password">Password</Label>
-                    <Link to="/forgot-password" className="text-xs text-blue-600 hover:underline">Forgot password?</Link>
+                    <div className="flex justify-between items-center">
+                        <Label htmlFor="password">Password</Label>
+                        <Link to="/forgot-password" university-red-600 className="text-xs text-blue-600 hover:underline">Forgot password?</Link>
+                    </div>
                     <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
                 </div>
-                
             </CardContent>
             <CardFooter>
                 <Button type="submit" className="w-full mt-4" disabled={loading}>
-                    {loading ? <Loader2 className="h-4 w-4  animate-spin" /> : 'Sign In with Password'}
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Sign In with Password'}
                 </Button>
             </CardFooter>
         </form>
@@ -77,14 +77,12 @@ const WalletLoginForm = ({ onLoginSuccess }) => {
         setLoading(true);
         setError(null);
         try {
-            if (!window.ethereum) throw new Error("MetaMask is not installed. Please install it to log in.");
+            if (!window.ethereum) throw new Error("MetaMask is not installed.");
             
             const provider = new ethers.BrowserProvider(window.ethereum);
             const signer = await provider.getSigner();
             const address = await signer.getAddress();
 
-            // 1. Check if backend knows this address
-            // If this fails with 404, it means the wallet isn't linked yet.
             const nonceRes = await api.get(`/auth/nonce?address=${address}`);
             const nonce = nonceRes.data.nonce;
 
@@ -94,7 +92,7 @@ const WalletLoginForm = ({ onLoginSuccess }) => {
                 statement: 'Sign in to the Credentialing Platform.',
                 uri: window.location.origin,
                 version: '1',
-                chainId: 31337, // Localhost Chain ID. Change if deploying.
+                chainId: 11155111, // Changed to Sepolia Chain ID
                 nonce: nonce,
             });
 
@@ -109,10 +107,8 @@ const WalletLoginForm = ({ onLoginSuccess }) => {
             onLoginSuccess(verifyRes.data.user, verifyRes.data.token);
 
         } catch (err) {
-            console.error(err);
-            // Customize error message for common issue
             if (err.response?.status === 404) {
-                setError("Wallet not linked. Please login with Password first, then connect your wallet in the Dashboard.");
+                setError("Wallet not linked. Login with Password first.");
             } else {
                 setError(err.response?.data?.message || err.message || 'Login failed.');
             }
@@ -124,7 +120,7 @@ const WalletLoginForm = ({ onLoginSuccess }) => {
     return (
         <CardContent className="space-y-4 pt-4">
             <p className="text-sm text-slate-500 text-center mb-4">
-                Students: Log in instantly with your connected Web3 wallet.
+                Log in instantly with your connected wallet.
             </p>
             {error && (
                 <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded text-sm" role="alert">
@@ -147,14 +143,19 @@ const WalletLoginForm = ({ onLoginSuccess }) => {
 function LoginPage() {
     const { login, isAuthenticated } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation(); // Hook to access navigation state
 
+    // If already logged in, respect the redirect or go to dashboard
     if (isAuthenticated()) {
-        return <Navigate to="/dashboard" replace />;
+        const from = location.state?.from || "/dashboard";
+        return <Navigate to={from} replace />;
     }
 
     const handleLoginSuccess = (user, token) => {
         login(user, token);
-        navigate('/dashboard');
+        // FIX: Check if the user was sent here from the POAP page
+        const redirectTo = location.state?.from || '/dashboard';
+        navigate(redirectTo, { replace: true });
     };
 
     return (
