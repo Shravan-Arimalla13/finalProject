@@ -1,4 +1,4 @@
-// server/controllers/poap.controller.js - COMPLETE CONTROLLER
+// server/controllers/poap.controller.js - ENHANCED VERSION
 const poapService = require('../services/poap.service');
 const POAP = require('../models/poap.model');
 const Event = require('../models/event.model');
@@ -6,16 +6,11 @@ const User = require('../models/user.model');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const { getAddress } = require('ethers/address');
-
+const { getCurrentIST, formatISTDisplay } = require('../utils/timezone');
 
 // ============================================
-// 1. GENERATE QR CODE FOR EVENT CHECK-IN
+// 1. GENERATE QR CODE (ENHANCED: 10-MIN VALIDITY + LIVE CHECK)
 // ============================================
-
-/**
- * Generate QR code and check-in link for an event
- * POST /api/poap/event/:eventId/qr
- */
 exports.generateEventQR = async (req, res) => {
     try {
         const { eventId } = req.params;
@@ -25,38 +20,48 @@ exports.generateEventQR = async (req, res) => {
             return res.status(404).json({ message: 'Event not found' });
         }
         
-        // Generate unique check-in token
+        // NEW: Check if event is currently live
+        const liveCheck = poapService.validateEventIsLive(event.date, event.startTime, event.endTime);
+        
+        if (!liveCheck.isLive) {
+            return res.status(400).json({
+                message: liveCheck.message,
+                status: liveCheck.status,
+                currentIST: liveCheck.currentIST,
+                eventStart: event.startTime,
+                eventEnd: event.endTime
+            });
+        }
+        
+        const now = getCurrentIST();
         const checkInToken = crypto.randomBytes(32).toString('hex');
         
-        // Store token in event (expires 24 hours after event date)
+        // NEW: Store QR generation time and 10-minute expiry
         event.checkInToken = checkInToken;
-        event.checkInTokenExpiry = new Date(
-            new Date(event.date).getTime() + 24 * 60 * 60 * 1000
-        );
+        event.qrGeneratedAt = now; // NEW FIELD
+        event.qrExpiresAt = new Date(now.getTime() + 10 * 60 * 1000); // NEW FIELD
         await event.save();
         
-        // Build check-in URL
         const baseUrl = process.env.FRONTEND_URL || "https://final-project-wheat-mu-84.vercel.app";
         const checkInUrl = `${baseUrl}/poap-checkin?token=${checkInToken}&eventId=${eventId}`;
         
-        // Generate QR code
         const qrCode = await QRCode.toDataURL(checkInUrl, {
             errorCorrectionLevel: 'H',
             type: 'image/png',
             width: 400,
             margin: 2,
-            color: {
-                dark: '#000000',
-                light: '#FFFFFF'
-            }
+            color: { dark: '#000000', light: '#FFFFFF' }
         });
         
-        console.log(`✅ QR code generated for event: ${event.name}`);
+        console.log(`✅ QR Generated for "${event.name}" - Valid for 10 minutes`);
         
         res.json({ 
             qrCode: qrCode, 
             checkInUrl: checkInUrl,
-            expiresAt: event.checkInTokenExpiry
+            generatedAt: now.toISOString(),
+            expiresAt: event.qrExpiresAt.toISOString(),
+            validityMinutes: 10,
+            eventStatus: 'Ongoing'
         });
         
     } catch (error) {
@@ -66,15 +71,8 @@ exports.generateEventQR = async (req, res) => {
 };
 
 // ============================================
-// 2. CLAIM POAP (Student Check-In)
+// 2. CLAIM POAP (ENHANCED: QR VALIDATION + SCORING)
 // ============================================
-
-
-
-/**
- * Claim POAP by checking in with GPS verification
- * POST /api/poap/claim
- */
 exports.claimPOAP = async (req, res) => {
     try {
         const { token, eventId, gps } = req.body;
@@ -95,21 +93,24 @@ exports.claimPOAP = async (req, res) => {
             });
         }
 
-        // --- CRITICAL FIX: TIMEZONE & TIME VALIDATION ---
-        const now = new Date();
-        const timeCheck = poapService.validateCheckInTime(
-            event.date, 
-            event.startTime, 
-            event.endTime
-        );
-        
-        // Detailed server logging to debug "Too Early" issues
-        console.log(`🕒 Time Check: Now=${now.toLocaleTimeString()}, EventStart=${event.startTime}`);
-        
-        if (!timeCheck.isValid) {
-            console.warn(`🚫 Check-in rejected: ${timeCheck.message}`);
-            return res.status(400).json({ message: timeCheck.message });
+        // NEW: Validate QR expiry (10 minutes)
+        if (!event.qrGeneratedAt) {
+            return res.status(400).json({
+                message: 'QR code metadata missing. Please regenerate QR.'
+            });
         }
+
+        const qrValidation = poapService.validateQRToken(event.qrGeneratedAt, token);
+        
+        if (!qrValidation.isValid) {
+            return res.status(400).json({
+                message: qrValidation.message,
+                expired: true,
+                instruction: 'Ask your faculty to generate a fresh QR code'
+            });
+        }
+        
+        console.log(`⏱️ QR Valid - ${qrValidation.remainingSeconds}s remaining`);
         
         const student = await User.findById(studentId);
         if (!student || !student.walletAddress) {
@@ -118,14 +119,14 @@ exports.claimPOAP = async (req, res) => {
 
         const studentWallet = getAddress(student.walletAddress.toLowerCase());
         
-        // Calculate attendance score based on server-side 'now'
+        // NEW: Calculate score based on QR generation time
+        const checkInTime = getCurrentIST();
         const attendanceScore = poapService.calculateAttendanceScore(
-            event.date,
-            event.startTime,
-            now
+            event.qrGeneratedAt,
+            checkInTime
         );
         
-        // Mint POAP on blockchain
+        // Mint POAP
         const mintResult = await poapService.mintPOAP(
             studentWallet,
             { eventId: event._id, eventName: event.name, eventDate: event.date },
@@ -157,6 +158,10 @@ exports.claimPOAP = async (req, res) => {
         res.status(201).json({ 
             success: true, 
             message: 'POAP claimed successfully!',
+            attendanceScore: attendanceScore,
+            scoreMessage: attendanceScore === 100 
+                ? '🎉 Perfect timing! On-time attendance.' 
+                : `⏰ Score: ${attendanceScore}% (checked in late)`,
             poap: newPOAP
         });
         
@@ -169,29 +174,16 @@ exports.claimPOAP = async (req, res) => {
 // ============================================
 // 3. GET MY POAPs (Student View)
 // ============================================
-
-/**
- * Get all POAPs for logged-in student
- * GET /api/poap/my-poaps
- */
 exports.getMyPOAPs = async (req, res) => {
     try {
         const student = await User.findById(req.user.id);
+        if (!student) return res.status(404).json({ message: 'User not found' });
         
-        if (!student) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-        
-        const poaps = await POAP.find({
-            studentEmail: student.email
-        })
-        .populate('eventId', 'name date description location')
-        .sort({ checkInTime: -1 });
-        
-        console.log(`📋 Retrieved ${poaps.length} POAPs for ${student.email}`);
+        const poaps = await POAP.find({ studentEmail: student.email })
+            .populate('eventId', 'name date description location')
+            .sort({ checkInTime: -1 });
         
         res.json(poaps);
-        
     } catch (error) {
         console.error('POAP Fetch Error:', error);
         res.status(500).json({ message: 'Failed to fetch POAPs' });
@@ -201,16 +193,10 @@ exports.getMyPOAPs = async (req, res) => {
 // ============================================
 // 4. VERIFY POAP (Public)
 // ============================================
-
-/**
- * Verify a POAP by token ID (public endpoint)
- * GET /api/poap/verify/:tokenId
- */
 exports.verifyPOAP = async (req, res) => {
     try {
         const { tokenId } = req.params;
         
-        // Fetch from database
         const poap = await POAP.findOne({ tokenId })
             .populate('eventId', 'name date description')
             .populate('issuer', 'name');
@@ -222,7 +208,6 @@ exports.verifyPOAP = async (req, res) => {
             });
         }
         
-        // Check blockchain validity
         const isValid = await poapService.isAttendanceValid(tokenId);
         
         res.json({ 
@@ -238,50 +223,33 @@ exports.verifyPOAP = async (req, res) => {
                 isRevoked: poap.isRevoked
             }
         });
-        
     } catch (error) {
         console.error('POAP Verification Error:', error);
-        res.status(500).json({ 
-            verified: false,
-            message: 'Verification failed' 
-        });
+        res.status(500).json({ verified: false, message: 'Verification failed' });
     }
 };
 
 // ============================================
 // 5. GET EVENT ATTENDANCE REPORT (Faculty)
 // ============================================
-
-/**
- * Get attendance report for an event
- * GET /api/poap/event/:eventId/attendance
- */
 exports.getEventAttendance = async (req, res) => {
     try {
         const { eventId } = req.params;
         
-        // Fetch all POAPs for this event
         const attendees = await POAP.find({ eventId })
             .select('studentName studentEmail checkInTime attendanceScore checkInLocation')
             .sort({ checkInTime: 1 });
         
-        // Calculate statistics
         const stats = {
             totalAttendees: attendees.length,
-            onTime: attendees.filter(a => a.attendanceScore === 100).length,
+            perfect: attendees.filter(a => a.attendanceScore === 100).length,
             late: attendees.filter(a => a.attendanceScore < 100).length,
             averageScore: attendees.length > 0
                 ? Math.round(attendees.reduce((sum, a) => sum + a.attendanceScore, 0) / attendees.length)
                 : 0
         };
         
-        console.log(`📊 Attendance Report Generated: ${attendees.length} attendees`);
-        
-        res.json({ 
-            stats, 
-            attendees 
-        });
-        
+        res.json({ stats, attendees });
     } catch (error) {
         console.error('Attendance Report Error:', error);
         res.status(500).json({ message: 'Report generation failed' });
@@ -291,95 +259,26 @@ exports.getEventAttendance = async (req, res) => {
 // ============================================
 // 6. REVOKE POAP (Admin)
 // ============================================
-
-/**
- * Revoke a POAP (for fraudulent check-ins)
- * POST /api/poap/revoke
- */
 exports.revokePOAP = async (req, res) => {
     try {
         const { tokenId, reason } = req.body;
+        if (!tokenId) return res.status(400).json({ message: 'Token ID required' });
         
-        if (!tokenId) {
-            return res.status(400).json({ message: 'Token ID is required' });
-        }
+        const txHash = await poapService.revokePOAP(tokenId, reason || 'Admin revocation');
         
-        // Revoke on blockchain
-        const txHash = await poapService.revokePOAP(
-            tokenId, 
-            reason || 'Admin revocation'
-        );
-        
-        // Update database
         await POAP.findOneAndUpdate(
             { tokenId },
             { 
                 isRevoked: true, 
-                revokedAt: new Date(), 
+                revokedAt: getCurrentIST(), 
                 revokeReason: reason || 'Admin revocation'
             }
         );
         
-        console.log(`🚫 POAP #${tokenId} revoked`);
-        
-        res.json({ 
-            message: 'POAP revoked successfully',
-            transactionHash: txHash
-        });
-        
+        res.json({ message: 'POAP revoked successfully', transactionHash: txHash });
     } catch (error) {
         console.error('POAP Revocation Error:', error);
         res.status(500).json({ message: 'Revocation failed: ' + error.message });
-    }
-};
-
-// ============================================
-// 7. BULK REVOKE (Admin - Optional)
-// ============================================
-
-/**
- * Revoke multiple POAPs at once
- * POST /api/poap/bulk-revoke
- */
-exports.bulkRevokePOAPs = async (req, res) => {
-    try {
-        const { tokenIds, reason } = req.body;
-        
-        if (!Array.isArray(tokenIds) || tokenIds.length === 0) {
-            return res.status(400).json({ message: 'Token IDs array is required' });
-        }
-        
-        const results = [];
-        
-        for (const tokenId of tokenIds) {
-            try {
-                const txHash = await poapService.revokePOAP(tokenId, reason);
-                
-                await POAP.findOneAndUpdate(
-                    { tokenId },
-                    { 
-                        isRevoked: true, 
-                        revokedAt: new Date(), 
-                        revokeReason: reason 
-                    }
-                );
-                
-                results.push({ tokenId, success: true, txHash });
-            } catch (error) {
-                results.push({ tokenId, success: false, error: error.message });
-            }
-        }
-        
-        const successCount = results.filter(r => r.success).length;
-        
-        res.json({
-            message: `Revoked ${successCount}/${tokenIds.length} POAPs`,
-            results
-        });
-        
-    } catch (error) {
-        console.error('Bulk Revoke Error:', error);
-        res.status(500).json({ message: 'Bulk revocation failed' });
     }
 };
 

@@ -1,294 +1,4 @@
-// // client/src/pages/POAPCheckIn.jsx - COMPLETE FIX
-// import React, { useState, useEffect } from 'react';
-// import { useSearchParams, useNavigate } from 'react-router-dom';
-// import { useAuth } from '../context/AuthContext.jsx';
-// import api from '../api.js';
-
-// import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.jsx";
-// import { Button } from "../components/ui/button.jsx";
-// import { Alert, AlertDescription } from "../components/ui/alert-box.jsx";
-// import { Badge } from "../components/ui/badge-item.jsx";
-
-// import { 
-//     MapPin, Clock, Loader2, CheckCircle2, 
-//     AlertTriangle, Navigation, Award 
-// } from "lucide-react";
-
-// const POAPCheckIn = () => {
-//     const [searchParams] = useSearchParams();
-//     const navigate = useNavigate();
-//     const { user, isAuthenticated } = useAuth();
-    
-//     const [loading, setLoading] = useState(false);
-//     const [gpsLoading, setGpsLoading] = useState(false);
-//     const [event, setEvent] = useState(null);
-//     const [gpsCoords, setGpsCoords] = useState(null);
-//     const [error, setError] = useState(null);
-//     const [success, setSuccess] = useState(false);
-    
-//     const token = searchParams.get('token');
-//     const eventId = searchParams.get('eventId');
-    
-//     // FIX #1: Check authentication BEFORE fetching event
-//     useEffect(() => {
-//         if (!isAuthenticated()) {
-//             console.log('❌ User not authenticated');
-//             <Button 
-//     onClick={() => navigate('/login', { 
-//         state: { from: `/poap-checkin?eventId=${eventId}&token=${token}` } 
-//     })} 
-//     className="w-full"
-// >
-//     Go to Login
-// </Button>
-//             return;
-//         }
-        
-//         if (eventId) {
-//             fetchEvent();
-//         } else {
-//             setError("Invalid Link: Missing Event ID");
-//         }
-//     }, [eventId, isAuthenticated]);
-    
-//     const fetchEvent = async () => {
-//         try {
-//             console.log('📡 Fetching event:', eventId);
-//             const res = await api.get(`/events/${eventId}`);
-//             console.log('✅ Event loaded:', res.data);
-//             setEvent(res.data);
-//         } catch (err) {
-//             console.error('❌ Event fetch error:', err);
-//             setError('Event not found or you do not have access');
-//         }
-//     };
-    
-//     const getLocation = () => {
-//         setGpsLoading(true);
-//         setError(null);
-        
-//         if (!navigator.geolocation) {
-//             setError('GPS not supported by your browser');
-//             setGpsLoading(false);
-//             return;
-//         }
-        
-//         console.log('📍 Requesting GPS location...');
-        
-//         navigator.geolocation.getCurrentPosition(
-//             (position) => {
-//                 const coords = {
-//                     latitude: position.coords.latitude,
-//                     longitude: position.coords.longitude,
-//                     accuracy: position.coords.accuracy
-//                 };
-//                 console.log('✅ GPS obtained:', coords);
-//                 setGpsCoords(coords);
-//                 setGpsLoading(false);
-//             },
-//             (error) => {
-//                 console.error('❌ GPS error:', error);
-//                 setError(`GPS access denied: ${error.message}. Please enable location services.`);
-//                 setGpsLoading(false);
-//             },
-//             {
-//                 enableHighAccuracy: true,
-//                 timeout: 10000,
-//                 maximumAge: 0
-//             }
-//         );
-//     };
-    
-//     const handleClaimPOAP = async () => {
-//         if (!gpsCoords) {
-//             setError('Please enable GPS first');
-//             return;
-//         }
-        
-//         console.log('🎫 Claiming POAP with:', { token, eventId, gps: gpsCoords });
-        
-//         setLoading(true);
-//         setError(null);
-        
-//         try {
-//             const response = await api.post('/poap/claim', {
-//                 token,
-//                 eventId,
-//                 gps: gpsCoords
-//             });
-            
-//             console.log('✅ POAP claimed successfully:', response.data);
-//             setSuccess(true);
-            
-//             setTimeout(() => {
-//                 navigate('/dashboard');
-//             }, 3000);
-            
-//         } catch (err) {
-//             console.error('❌ POAP claim failed:', err);
-//             const errorMsg = err.response?.data?.message || 'Claim failed. Please try again.';
-//             setError(errorMsg);
-//         } finally {
-//             setLoading(false);
-//         }
-//     };
-    
-//     // AUTH CHECK - Show login prompt if not authenticated
-//     if (!isAuthenticated()) {
-//         return (
-//             <div className="min-h-screen flex items-center justify-center bg-muted/40 p-4">
-//                 <Card className="max-w-md w-full text-center shadow-lg">
-//                     <CardHeader>
-//                         <CardTitle>Sign In Required</CardTitle>
-//                     </CardHeader>
-//                     <CardContent className="space-y-4">
-//                         <p className="text-muted-foreground">
-//                             You must be logged in to claim your attendance badge.
-//                         </p>
-//                         <Button onClick={() => navigate('/login')} className="w-full">
-//                             Go to Login
-//                         </Button>
-//                     </CardContent>
-//                 </Card>
-//             </div>
-//         );
-//     }
-    
-//     // SUCCESS SCREEN
-//     if (success) {
-//         return (
-//             <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-emerald-100 dark:from-green-950/20 dark:to-emerald-950/20 p-4">
-//                 <Card className="max-w-md w-full text-center shadow-2xl border-t-4 border-green-500 animate-in zoom-in">
-//                     <CardContent className="pt-10 pb-10">
-//                         <div className="mx-auto bg-green-100 dark:bg-green-900/30 p-4 rounded-full w-fit mb-4">
-//                             <CheckCircle2 className="h-16 w-16 text-green-600" />
-//                         </div>
-//                         <h2 className="text-2xl font-bold text-green-800 dark:text-green-300 mb-2">
-//                             POAP Claimed!
-//                         </h2>
-//                         <p className="text-slate-600 dark:text-slate-400 mb-4">
-//                             Your attendance has been recorded on the blockchain
-//                         </p>
-//                         <Badge className="bg-green-600 text-white">
-//                             <Award className="h-3 w-3 mr-1" /> NFT Badge Minted
-//                         </Badge>
-//                     </CardContent>
-//                 </Card>
-//             </div>
-//         );
-//     }
-    
-//     // MAIN UI
-//     return (
-//         <div className="min-h-screen flex items-center justify-center bg-muted/40 p-4">
-//             <Card className="max-w-lg w-full shadow-lg">
-//                 <CardHeader className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-t-lg p-6">
-//                     <CardTitle className="flex items-center gap-2 text-xl">
-//                         <Award className="h-6 w-6" />
-//                         Claim Your POAP
-//                     </CardTitle>
-//                 </CardHeader>
-                
-//                 <CardContent className="pt-6 space-y-6">
-//                     {error && (
-//                         <Alert variant="destructive">
-//                             <AlertTriangle className="h-4 w-4" />
-//                             <AlertDescription>{error}</AlertDescription>
-//                         </Alert>
-//                     )}
-                    
-//                     {event && (
-//                         <div className="space-y-3 bg-slate-50 dark:bg-slate-900 p-4 rounded-lg border">
-//                             <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
-//                                 <Award className="h-5 w-5 text-blue-600" />
-//                                 <span className="font-semibold text-lg">{event.name}</span>
-//                             </div>
-                            
-//                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-//                                 <Clock className="h-4 w-4" />
-//                                 {new Date(event.date).toLocaleDateString()}
-//                             </div>
-                            
-//                             {event.location && event.location.address && (
-//                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-//                                     <MapPin className="h-4 w-4" />
-//                                     {event.location.address}
-//                                 </div>
-//                             )}
-//                         </div>
-//                     )}
-                    
-//                     {!event && !error && (
-//                         <div className="flex justify-center py-8">
-//                             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-//                         </div>
-//                     )}
-                    
-//                     {event && (
-//                         <>
-//                             <div className="border-t pt-4">
-//                                 <h3 className="font-semibold mb-3 flex items-center gap-2 text-foreground">
-//                                     <Navigation className="h-4 w-4 text-blue-500" />
-//                                     Step 1: Verify Location
-//                                 </h3>
-                                
-//                                 {!gpsCoords ? (
-//                                     <Button 
-//                                         onClick={getLocation} 
-//                                         disabled={gpsLoading}
-//                                         variant="outline"
-//                                         className="w-full h-12 text-base"
-//                                     >
-//                                         {gpsLoading ? (
-//                                             <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Getting Location...</>
-//                                         ) : (
-//                                             <><MapPin className="h-4 w-4 mr-2" /> Enable GPS Check-In</>
-//                                         )}
-//                                     </Button>
-//                                 ) : (
-//                                     <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded-lg border border-green-200 dark:border-green-800 flex justify-between items-center">
-//                                         <div className="flex items-center gap-2 text-green-700 dark:text-green-300">
-//                                             <CheckCircle2 className="h-5 w-5" />
-//                                             <span className="text-sm font-semibold">Location Verified</span>
-//                                         </div>
-//                                         <p className="text-xs text-green-600 dark:text-green-400 font-mono">
-//                                             ±{Math.round(gpsCoords.accuracy)}m
-//                                         </p>
-//                                     </div>
-//                                 )}
-//                             </div>
-                            
-//                             <div className="border-t pt-4">
-//                                 <h3 className="font-semibold mb-3 text-foreground">Step 2: Claim POAP</h3>
-//                                 <Button 
-//                                     onClick={handleClaimPOAP}
-//                                     disabled={!gpsCoords || loading}
-//                                     className="w-full h-12 text-base bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white transition-all shadow-md hover:shadow-lg disabled:opacity-50"
-//                                 >
-//                                     {loading ? (
-//                                         <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Minting...</>
-//                                     ) : (
-//                                         <><Award className="h-5 w-5 mr-2" /> Mint Attendance NFT</>
-//                                     )}
-//                                 </Button>
-//                             </div>
-                            
-//                             <div className="bg-blue-50 dark:bg-blue-950/30 p-3 rounded text-xs text-slate-600 dark:text-slate-400 border border-blue-100 dark:border-blue-900">
-//                                 <strong>What is a POAP?</strong> A Proof-of-Attendance Protocol NFT proves you were physically present at this event. It is minted to your wallet as a permanent blockchain record.
-//                             </div>
-//                         </>
-//                     )}
-//                 </CardContent>
-//             </Card>
-//         </div>
-//     );
-// };
-
-// export default POAPCheckIn;
-
-
-
-// client/src/pages/POAPCheckIn.jsx
+// client/src/pages/POAPCheckIn.jsx - ENHANCED MOBILE-RESPONSIVE VERSION
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -297,7 +7,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.
 import { Button } from "../components/ui/button.jsx";
 import { Alert, AlertDescription } from "../components/ui/alert-box.jsx";
 import { Badge } from "../components/ui/badge-item.jsx";
-import { MapPin, Clock, Loader2, CheckCircle2, AlertTriangle, Navigation, Award } from "lucide-react";
+import { Progress } from "../components/ui/progress.jsx";
+import { 
+    MapPin, Clock, Loader2, CheckCircle2, 
+    AlertTriangle, Navigation, Award, Timer,
+    Zap, Trophy
+} from "lucide-react";
 
 const POAPCheckIn = () => {
     const [searchParams] = useSearchParams();
@@ -310,6 +25,11 @@ const POAPCheckIn = () => {
     const [gpsCoords, setGpsCoords] = useState(null);
     const [error, setError] = useState(null);
     const [success, setSuccess] = useState(false);
+    const [attendanceScore, setAttendanceScore] = useState(null);
+    
+    // NEW: QR Countdown Timer State
+    const [qrExpiryTime, setQrExpiryTime] = useState(null);
+    const [remainingSeconds, setRemainingSeconds] = useState(null);
     
     const token = searchParams.get('token');
     const eventId = searchParams.get('eventId');
@@ -319,10 +39,33 @@ const POAPCheckIn = () => {
         if (eventId) fetchEvent();
     }, [eventId, isAuthenticated]);
 
+    // NEW: Live Countdown Timer
+    useEffect(() => {
+        if (!qrExpiryTime) return;
+        
+        const interval = setInterval(() => {
+            const now = new Date();
+            const remaining = Math.max(0, Math.floor((new Date(qrExpiryTime) - now) / 1000));
+            setRemainingSeconds(remaining);
+            
+            if (remaining === 0) {
+                setError('⏰ QR code has expired! Ask faculty to generate a new one.');
+                clearInterval(interval);
+            }
+        }, 1000);
+        
+        return () => clearInterval(interval);
+    }, [qrExpiryTime]);
+
     const fetchEvent = async () => {
         try {
             const res = await api.get(`/events/${eventId}`);
             setEvent(res.data);
+            
+            // NEW: If QR metadata exists, set expiry timer
+            if (res.data.qrExpiresAt) {
+                setQrExpiryTime(res.data.qrExpiresAt);
+            }
         } catch (err) {
             setError('Event not found');
         }
@@ -332,10 +75,9 @@ const POAPCheckIn = () => {
         setGpsLoading(true);
         setError(null);
         
-        // --- FIX #2: RESILIENT GPS REQUEST ---
         const options = {
             enableHighAccuracy: true,
-            timeout: 15000, // Increased to 15 seconds
+            timeout: 15000,
             maximumAge: 0
         };
 
@@ -349,16 +91,8 @@ const POAPCheckIn = () => {
         };
 
         const errorHandler = (err) => {
-            console.warn("High Accuracy Failed, trying fallback...", err.message);
-            // Fallback to low accuracy if high accuracy times out
-            navigator.geolocation.getCurrentPosition(
-                successHandler,
-                (fallbackErr) => {
-                    setError(`Location Error: ${fallbackErr.message}. Ensure location is ON.`);
-                    setGpsLoading(false);
-                },
-                { enableHighAccuracy: false, timeout: 10000 }
-            );
+            setError(`Location Error: ${err.message}. Enable location in settings.`);
+            setGpsLoading(false);
         };
 
         navigator.geolocation.getCurrentPosition(successHandler, errorHandler, options);
@@ -372,7 +106,8 @@ const POAPCheckIn = () => {
                 token, eventId, gps: gpsCoords
             });
             setSuccess(true);
-            setTimeout(() => navigate('/dashboard'), 3000);
+            setAttendanceScore(response.data.attendanceScore);
+            setTimeout(() => navigate('/dashboard'), 3500);
         } catch (err) {
             setError(err.response?.data?.message || 'Claim failed');
         } finally {
@@ -380,41 +115,233 @@ const POAPCheckIn = () => {
         }
     };
 
+    // Format countdown display
+    const formatTime = (seconds) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
     if (!isAuthenticated()) {
         return (
-            <div className="min-h-screen flex items-center justify-center p-4">
-                <Button onClick={() => navigate('/login')}>Login to Claim POAP</Button>
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-4">
+                <Card className="max-w-md w-full text-center shadow-2xl animate-in zoom-in">
+                    <CardContent className="pt-10">
+                        <AlertTriangle className="h-16 w-16 mx-auto mb-4 text-amber-500" />
+                        <h2 className="text-xl font-bold mb-2">Sign In Required</h2>
+                        <p className="text-muted-foreground mb-6">Login to claim your attendance badge</p>
+                        <Button onClick={() => navigate('/login', { state: { from: `/poap-checkin?eventId=${eventId}&token=${token}` } })} className="w-full">
+                            Go to Login
+                        </Button>
+                    </CardContent>
+                </Card>
             </div>
         );
     }
 
-    if (success) return (
-        <div className="min-h-screen flex items-center justify-center p-4">
-            <Card className="text-center p-10"><CheckCircle2 className="mx-auto h-16 w-16 text-green-500" /><h2>POAP Claimed Successfully!</h2></Card>
-        </div>
-    );
+    // SUCCESS SCREEN (Enhanced)
+    if (success) {
+        const isPerfect = attendanceScore === 100;
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 dark:from-green-950/20 dark:via-emerald-950/20 dark:to-teal-950/20 p-4">
+                <Card className="max-w-md w-full text-center shadow-2xl border-t-4 border-green-500 animate-in zoom-in">
+                    <CardContent className="pt-10 pb-10 space-y-6">
+                        <div className="relative">
+                            <div className="mx-auto bg-gradient-to-br from-green-400 to-emerald-500 p-6 rounded-full w-fit mb-4 animate-pulse">
+                                {isPerfect ? <Trophy className="h-20 w-20 text-white" /> : <CheckCircle2 className="h-20 w-20 text-white" />}
+                            </div>
+                            <div className="absolute -top-2 -right-2 animate-bounce">
+                                <Zap className="h-8 w-8 text-yellow-400 fill-yellow-400" />
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <h2 className="text-3xl font-bold text-green-800 dark:text-green-300 mb-2">
+                                {isPerfect ? '🎉 Perfect Score!' : '✅ POAP Claimed!'}
+                            </h2>
+                            <p className="text-slate-600 dark:text-slate-400">
+                                Attendance recorded on blockchain
+                            </p>
+                        </div>
+                        
+                        {/* Score Display */}
+                        <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border-2 border-green-200 dark:border-green-900">
+                            <div className="text-6xl font-black text-green-600 dark:text-green-400 mb-2">
+                                {attendanceScore}%
+                            </div>
+                            <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
+                                {isPerfect ? 'On-Time Attendance' : 'Attendance Score'}
+                            </p>
+                        </div>
+                        
+                        <Badge className="bg-green-600 text-white text-base px-6 py-2">
+                            <Award className="h-4 w-4 mr-2" /> NFT Badge Minted
+                        </Badge>
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
 
     return (
-        <div className="min-h-screen flex items-center justify-center p-4">
-            <Card className="max-w-md w-full">
-                <CardHeader className="bg-primary text-primary-foreground"><CardTitle>Claim Attendance POAP</CardTitle></CardHeader>
-                <CardContent className="space-y-6 pt-6">
-                    {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-                    {event && (
-                        <div className="p-4 border rounded-lg bg-muted/50">
-                            <h3 className="font-bold">{event.name}</h3>
-                            <p className="text-sm"><Clock className="inline h-4 w-4 mr-1" /> {new Date(event.date).toLocaleDateString()}</p>
-                        </div>
-                    )}
-                    <Button onClick={getLocation} disabled={gpsLoading} variant="outline" className="w-full">
-                        {gpsLoading ? <Loader2 className="animate-spin mr-2" /> : <MapPin className="mr-2" />}
-                        {gpsCoords ? "Location Verified" : "Verify Location"}
-                    </Button>
-                    <Button onClick={handleClaimPOAP} disabled={!gpsCoords || loading} className="w-full">
-                        {loading ? "Minting..." : "Claim NFT Badge"}
-                    </Button>
-                </CardContent>
-            </Card>
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-950 dark:via-blue-950/20 dark:to-indigo-950/20 p-4 md:p-8">
+            <div className="max-w-2xl mx-auto">
+                {/* Header */}
+                <div className="text-center mb-6 animate-in fade-in slide-in-from-top">
+                    <div className="inline-flex items-center gap-2 bg-white dark:bg-slate-900 px-6 py-3 rounded-full shadow-lg mb-4 border border-slate-200 dark:border-slate-800">
+                        <Timer className="h-5 w-5 text-blue-600 animate-pulse" />
+                        <span className="font-bold text-slate-700 dark:text-slate-200">Live Check-In</span>
+                    </div>
+                    <h1 className="text-3xl md:text-4xl font-bold text-slate-800 dark:text-white">Claim Your POAP</h1>
+                </div>
+
+                <Card className="shadow-2xl border-t-4 border-blue-500 animate-in fade-in slide-in-from-bottom">
+                    <CardHeader className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-t-xl">
+                        <CardTitle className="flex items-center justify-between text-xl">
+                            <span className="flex items-center gap-2">
+                                <Award className="h-6 w-6" />
+                                Event Attendance
+                            </span>
+                            {remainingSeconds !== null && (
+                                <Badge className="bg-white/20 backdrop-blur-sm text-white border-white/30 text-lg px-4 py-1">
+                                    <Timer className="h-4 w-4 mr-2" />
+                                    {formatTime(remainingSeconds)}
+                                </Badge>
+                            )}
+                        </CardTitle>
+                    </CardHeader>
+                    
+                    <CardContent className="pt-6 space-y-6">
+                        {/* QR Validity Progress */}
+                        {remainingSeconds !== null && (
+                            <div className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 p-4 rounded-xl border border-blue-200 dark:border-blue-900 animate-in fade-in">
+                                <div className="flex justify-between items-center mb-2">
+                                    <span className="text-sm font-bold text-slate-700 dark:text-slate-300">QR Code Validity</span>
+                                    <span className="text-xs font-mono text-slate-600 dark:text-slate-400">
+                                        {remainingSeconds > 0 ? `${Math.floor(remainingSeconds / 60)}m ${remainingSeconds % 60}s left` : 'EXPIRED'}
+                                    </span>
+                                </div>
+                                <Progress 
+                                    value={(remainingSeconds / 600) * 100} 
+                                    className="h-3"
+                                />
+                                {remainingSeconds < 120 && remainingSeconds > 0 && (
+                                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-2 flex items-center gap-1">
+                                        <AlertTriangle className="h-3 w-3" />
+                                        Hurry! QR expires soon
+                                    </p>
+                                )}
+                            </div>
+                        )}
+
+                        {error && (
+                            <Alert variant="destructive" className="animate-in fade-in">
+                                <AlertTriangle className="h-4 w-4" />
+                                <AlertDescription>{error}</AlertDescription>
+                            </Alert>
+                        )}
+                        
+                        {event && (
+                            <div className="space-y-4 bg-slate-50 dark:bg-slate-900/50 p-5 rounded-xl border animate-in fade-in">
+                                <div className="flex items-center gap-3">
+                                    <Award className="h-6 w-6 text-blue-600 flex-shrink-0" />
+                                    <div>
+                                        <h3 className="font-bold text-lg text-slate-800 dark:text-white">{event.name}</h3>
+                                        <div className="flex flex-wrap gap-2 mt-2">
+                                            <Badge variant="outline" className="text-xs">
+                                                <Clock className="h-3 w-3 mr-1" />
+                                                {new Date(event.date).toLocaleDateString('en-IN')} IST
+                                            </Badge>
+                                            {event.location?.address && (
+                                                <Badge variant="outline" className="text-xs">
+                                                    <MapPin className="h-3 w-3 mr-1" />
+                                                    {event.location.address}
+                                                </Badge>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {!event && !error && (
+                            <div className="flex justify-center py-8">
+                                <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
+                            </div>
+                        )}
+                        
+                        {event && (
+                            <div className="space-y-4">
+                                {/* Step 1: GPS */}
+                                <div className="border-t pt-6">
+                                    <h3 className="font-bold mb-3 flex items-center gap-2 text-slate-800 dark:text-white">
+                                        <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-sm">1</div>
+                                        Verify Location
+                                    </h3>
+                                    
+                                    {!gpsCoords ? (
+                                        <Button 
+                                            onClick={getLocation} 
+                                            disabled={gpsLoading}
+                                            variant="outline"
+                                            className="w-full h-14 text-base font-semibold hover:scale-105 transition-transform"
+                                        >
+                                            {gpsLoading ? (
+                                                <><Loader2 className="h-5 w-5 animate-spin mr-2" /> Getting Location...</>
+                                            ) : (
+                                                <><Navigation className="h-5 w-5 mr-2" /> Enable GPS Check-In</>
+                                            )}
+                                        </Button>
+                                    ) : (
+                                        <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-xl border-2 border-green-200 dark:border-green-800 animate-in zoom-in">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-3">
+                                                    <CheckCircle2 className="h-6 w-6 text-green-600" />
+                                                    <div>
+                                                        <p className="font-bold text-green-700 dark:text-green-300">Location Verified</p>
+                                                        <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                                                            Accuracy: ±{Math.round(gpsCoords.accuracy)}m
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                {/* Step 2: Claim */}
+                                <div className="border-t pt-6">
+                                    <h3 className="font-bold mb-3 flex items-center gap-2 text-slate-800 dark:text-white">
+                                        <div className="h-8 w-8 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center text-purple-600 dark:text-purple-400 font-bold text-sm">2</div>
+                                        Claim POAP
+                                    </h3>
+                                    <Button 
+                                        onClick={handleClaimPOAP}
+                                        disabled={!gpsCoords || loading || (remainingSeconds !== null && remainingSeconds === 0)}
+                                        className="w-full h-14 text-lg font-bold bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all disabled:opacity-50 disabled:hover:scale-100"
+                                    >
+                                        {loading ? (
+                                            <><Loader2 className="h-5 w-5 animate-spin mr-2" /> Minting NFT...</>
+                                        ) : (
+                                            <><Award className="h-6 w-6 mr-2" /> Mint Attendance NFT</>
+                                        )}
+                                    </Button>
+                                </div>
+                                
+                                {/* Info Box */}
+                                <div className="bg-blue-50 dark:bg-blue-950/30 p-4 rounded-xl text-xs text-slate-600 dark:text-slate-400 border border-blue-200 dark:border-blue-900">
+                                    <p className="font-bold text-blue-700 dark:text-blue-300 mb-2">📌 Scoring System (IST)</p>
+                                    <ul className="space-y-1">
+                                        <li>✅ <strong>First 10 minutes:</strong> 100% (Perfect Score)</li>
+                                        <li>⏰ <strong>After 10 min:</strong> -5% per 5 minutes late (min 50%)</li>
+                                        <li>🔒 <strong>QR expires:</strong> 10 minutes after generation</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            </div>
         </div>
     );
 };
