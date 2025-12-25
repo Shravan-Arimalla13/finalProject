@@ -11,4 +11,7 @@ const quizSchema = new mongoose.Schema({
     isActive: { type: Boolean, default: true },
 }, { timestamps: true });
 
+// Optimized for fast lookups in the "Available Quizzes" list
+quizSchema.index({ isActive: 1, department: 1 });
+
 module.exports = mongoose.model('Quiz', quizSchema);
