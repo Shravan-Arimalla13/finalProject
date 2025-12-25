@@ -1,3 +1,4 @@
+// In client/src/pages/EventManagementPage.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../api';
 import ParticipantsModal from '../components/ParticipantsModal';
@@ -7,13 +8,13 @@ import { useAuth } from '../context/AuthContext';
 import { TableSkeleton } from '../components/TableSkeleton'; 
 import { Input } from "@/components/ui/input";
 
-// --- SHADCN IMPORTS ---
+// --- SHADCN IMPORTS (Restored to original paths) ---
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge"; // Fixed: Import Badge to prevent ReferenceError
+import { Badge } from "@/components/ui/badge-item"; // Restored original path
 import {
   Dialog,
   DialogContent,
@@ -22,10 +23,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { 
-  MoreHorizontal, Search, PenTool, RefreshCcw, Loader2, QrCode, 
-  Copy, MapPin, Clock, CheckCircle2, Award, Users, UserCheck 
-} from "lucide-react"; 
+import { MoreHorizontal, Search, PenTool, RefreshCcw, Loader2, QrCode, Copy, MapPin, Clock, CheckCircle2, Award, Users, UserCheck } from "lucide-react"; 
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,6 +31,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+// ---
 
 function EventManagementPage() {
     const { user } = useAuth();
@@ -51,7 +50,7 @@ function EventManagementPage() {
 
     // QR Modal State
     const [isQROpen, setIsQROpen] = useState(false);
-    const [qrData, setQrData] = useState({ img: null, url: '', expiresAt: null, eventId: null });
+    const [qrData, setQrData] = useState({ img: null, url: '', expiresAt: null });
 
     // --- CREATE FORM STATE ---
     const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -83,9 +82,13 @@ function EventManagementPage() {
     useEffect(() => { fetchEvents(); }, []);
 
     useEffect(() => {
-        if (user && user.role === 'Faculty' && user.department) {
-            const formalDept = `DEPARTMENT OF ${user.department.toUpperCase()}`; 
-            setFormData(prev => ({ ...prev, headerDepartment: formalDept }));
+        if (user) {
+            if (user.role === 'Faculty' && user.department) {
+                const formalDept = `DEPARTMENT OF ${user.department.toUpperCase()}`; 
+                setFormData(prev => ({ ...prev, headerDepartment: formalDept }));
+            } else if (user.role === 'SuperAdmin') {
+                setFormData(prev => ({ ...prev, headerDepartment: 'OTHER' }));
+            }
         }
     }, [user]);
 
@@ -94,6 +97,7 @@ function EventManagementPage() {
         try {
             const response = await api.get('/events');
             setEvents(response.data);
+            
             if (response.data.length > 0) {
                 const latest = response.data.reduce((a, b) => (new Date(a.createdAt) > new Date(b.createdAt) ? a : b));
                 if (latest.certificateConfig) {
@@ -120,14 +124,17 @@ function EventManagementPage() {
     const handleLocationChange = (field, value) => {
         setFormData(prev => ({ 
             ...prev, 
-            location: { ...prev.location, [field]: value }
+            location: {
+                ...prev.location,
+                [field]: value
+            }
         }));
     };
 
     const setLocationToCurrent = () => {
         setIsGpsLoading(true);
         if (!navigator.geolocation) {
-            alert("Geolocation not supported.");
+            alert("Location Capture Failed: Geolocation not supported by your browser.");
             setIsGpsLoading(false);
             return;
         }
@@ -143,6 +150,7 @@ function EventManagementPage() {
                     }
                 }));
                 setIsGpsLoading(false);
+                alert("Location Captured.");
             },
             () => {
                 alert("Location Capture Failed.");
@@ -152,8 +160,17 @@ function EventManagementPage() {
         );
     };
 
+    const clearSig = () => {
+        if (sigPadRef.current) sigPadRef.current.clear();
+        setSignatureImage(null); 
+    };
+
     const handleCreateEvent = async () => {
         if (isCreating) return; 
+        if (!formData.name || !formData.date || !formData.startTime || !formData.endTime) {
+            alert("Please fill in Event Name, Date, Start Time, and End Time.");
+            return;
+        }
         setIsCreating(true); 
 
         const finalDept = formData.headerDepartment === 'OTHER' ? customDeptInput : formData.headerDepartment;
@@ -167,6 +184,7 @@ function EventManagementPage() {
         try {
             await api.post('/events', {
                 ...formData, 
+                location: formData.location, 
                 certificateConfig: {
                     collegeName: formData.collegeName,
                     customSignatureText: formData.customSignatureText,
@@ -180,6 +198,9 @@ function EventManagementPage() {
             });
             setIsDialogOpen(false); 
             fetchEvents(); 
+            setFormData(prev => ({ 
+                ...prev, name: '', date: '', description: '', eventType: '', eventDuration: '', isPublic: false
+            }));
         } catch (err) {
             alert(err.response?.data?.message || "Failed to create event");
         } finally {
@@ -187,14 +208,49 @@ function EventManagementPage() {
         }
     };
 
+    const handleIssuanceChoice = (event, type) => {
+        if (!window.confirm(`Confirm issuance?`)) return;
+
+        setIssueLoading(event._id);
+        setIssueMessage({ id: null, text: null });
+        setIssueError({ id: null, text: null });
+
+        api.post(`/certificates/issue/event/${event._id}?issueType=${type}`) 
+           .then(response => {
+                setIssueMessage({ id: event._id, text: response.data.message });
+                fetchEvents();
+           })
+           .catch(err => {
+                setIssueError({ id: event._id, text: err.response?.data?.message || 'Issuance Failed.' });
+           })
+           .finally(() => {
+                setIssueLoading(null);
+           });
+    };
+
+    const handleIssueCertificates = (event) => {
+        if (!window.confirm(`Issue certificates to remaining participants?`)) return;
+        setIssueLoading(event._id);
+        api.post(`/certificates/issue/event/${event._id}`)
+           .then(response => {
+                setIssueMessage({ id: event._id, text: response.data.message });
+                fetchEvents();
+           })
+           .catch(err => {
+                setIssueError({ id: event._id, text: err.response?.data?.message || 'Issuance Failed.' });
+           })
+           .finally(() => {
+                setIssueLoading(null);
+           });
+    };
+
     const handleGenerateQR = async (event) => {
         try {
-            const res = await api.post(`/poap/event/${event._id}/qr`); //
+            const res = await api.post(`/poap/event/${event._id}/qr`);
             setQrData({ 
                 img: res.data.qrCode, 
                 url: res.data.checkInUrl,
-                expiresAt: res.data.expiresAt, //
-                eventId: event._id
+                expiresAt: res.data.expiresAt 
             });
             setIsQROpen(true); 
         } catch (e) {
@@ -202,25 +258,19 @@ function EventManagementPage() {
         }
     };
 
-    const handleIssuanceChoice = (event, type) => {
-        if (!window.confirm("Confirm issuance?")) return;
-        setIssueLoading(event._id);
-        api.post(`/certificates/issue/event/${event._id}?issueType=${type}`) 
-           .then(response => {
-                setIssueMessage({ id: event._id, text: response.data.message });
-                fetchEvents();
-           })
-           .catch(() => setIssueError({ id: event._id, text: "Issuance Failed." }))
-           .finally(() => setIssueLoading(null));
+    const copyToClipboard = (event) => {
+        const publicUrl = `${window.location.origin}/event/${event._id}`;
+        navigator.clipboard.writeText(publicUrl);
+        alert('Copied!');
     };
-
+    
     const filteredEvents = events.filter(event => event.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
     return (
         <div className="min-h-screen bg-muted/40 p-4 md:p-8">
-            <div className="max-w-7xl mx-auto text-foreground">
+            <div className="max-w-7xl mx-auto">
                 <div className="flex justify-between items-center mb-6">
-                    <h1 className="text-3xl font-bold">Event Management</h1>
+                    <h1 className="text-3xl font-bold text-foreground">Event Management</h1>
                     
                     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                         <DialogTrigger asChild>
@@ -234,16 +284,16 @@ function EventManagementPage() {
                             
                             <div className="grid gap-6 py-4">
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
+                                    <div className="space-y-2 text-foreground">
                                         <Label>Event Name</Label>
                                         <Input value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} />
                                     </div>
-                                    <div className="space-y-2">
+                                    <div className="space-y-2 text-foreground">
                                         <Label>Event Date</Label>
                                         <Input type="date" min={today} value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})} />
                                     </div>
                                 </div>
-                                <div className="space-y-2">
+                                <div className="space-y-2 text-foreground">
                                     <Label>Description</Label>
                                     <Textarea value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} />
                                 </div>
@@ -251,37 +301,41 @@ function EventManagementPage() {
                                 <Card className="p-4 bg-muted/20 border-l-4 border-l-indigo-500">
                                     <CardContent className="p-0 space-y-4">
                                         <div className="grid grid-cols-2 gap-4">
-                                            <div className="space-y-2">
+                                            <div className="space-y-2 text-foreground">
                                                 <Label><Clock className="h-4 w-4 inline mr-1" /> Start Time</Label>
                                                 <Input type="time" value={formData.startTime} onChange={(e) => setFormData({...formData, startTime: e.target.value})} />
                                             </div>
-                                            <div className="space-y-2">
+                                            <div className="space-y-2 text-foreground">
                                                 <Label>End Time</Label>
                                                 <Input type="time" value={formData.endTime} onChange={(e) => setFormData({...formData, endTime: e.target.value})} />
                                             </div>
                                         </div>
-                                        <div className="space-y-2 border-t pt-3">
+                                        <div className="space-y-2 border-t pt-3 text-foreground">
                                             <Label><MapPin className="h-4 w-4 inline mr-1" /> Physical Check-In Venue</Label>
                                             <div className="flex gap-2 items-center">
                                                 <Input 
                                                     placeholder="Venue Address" 
                                                     value={formData.location.address}
                                                     onChange={(e) => handleLocationChange('address', e.target.value)}
+                                                    className="flex-1"
                                                 />
-                                                <Button onClick={setLocationToCurrent} disabled={isGpsLoading} variant="secondary">
-                                                    {isGpsLoading ? <Loader2 className="animate-spin" /> : <MapPin className="h-4 w-4" />}
+                                                <Button type="button" onClick={setLocationToCurrent} disabled={isGpsLoading} variant="secondary">
+                                                    {isGpsLoading ? <Loader2 className="h-4 w-4 animate-spin"/> : <MapPin className='h-4 w-4'/>}
                                                 </Button>
                                             </div>
                                         </div>
                                     </CardContent>
                                 </Card>
-
-                                <div className="space-y-2">
+                                
+                                <div className="space-y-2 text-foreground">
                                     <Label className="flex items-center gap-2"><PenTool className="h-4 w-4" /> Digital Signature</Label>
                                     <div className="relative rounded-md border-2 border-dashed border-input bg-white h-40">
                                         <SignatureCanvas ref={sigPadRef} penColor="black" canvasProps={{ className: 'w-full h-full' }} />
                                     </div>
-                                    <Input type="file" accept="image/png" onChange={(e) => handleImageUpload(e, setSignatureImage)} />
+                                    <div className="flex gap-2">
+                                        <Button size="sm" variant="outline" onClick={clearSig}>Clear Pad</Button>
+                                        <Input type="file" accept="image/png" onChange={(e) => handleImageUpload(e, setSignatureImage)} className="text-xs" />
+                                    </div>
                                 </div>
                             </div>
 
@@ -301,9 +355,8 @@ function EventManagementPage() {
                         <div className="flex flex-col items-center gap-4 py-4">
                             {qrData.img ? (
                                 <>
-                                    <img src={qrData.img} alt="QR Code" className="w-64 h-64 border rounded-lg p-2 bg-white" />
-                                    {/* Timer Component */}
-                                    <QRTimer expiresAt={qrData.expiresAt} /> 
+                                    <img src={qrData.img} alt="QR Code" className="w-64 h-64 border rounded-lg p-2 bg-white shadow-sm" />
+                                    <QRTimer expiresAt={qrData.expiresAt} />
                                 </>
                             ) : (
                                 <Loader2 className="h-10 w-10 animate-spin text-primary" />
@@ -320,7 +373,7 @@ function EventManagementPage() {
                                     </Button>
                                 </div>
                             </div>
-                            <Button variant="ghost" size="sm" onClick={() => handleGenerateQR({_id: qrData.eventId})}>
+                            <Button variant="ghost" size="sm" onClick={() => handleGenerateQR({_id: attendanceEvent?._id})}>
                                 <RefreshCcw className="h-3 w-3 mr-2" /> Regenerate if Expired
                             </Button>
                         </div>
@@ -330,56 +383,77 @@ function EventManagementPage() {
                 <Card className="shadow-lg">
                     <CardHeader>
                         <CardTitle>Existing Events</CardTitle>
-                        <div className="relative pt-4">
-                            <Input placeholder="Search..." className="pl-10" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                        <div className="relative pt-4 text-foreground">
+                            <Input placeholder="Search events..." className="pl-10" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                             <Search className="absolute left-3 top-6 h-5 w-5 text-muted-foreground" />
                         </div>
                     </CardHeader>
                     <CardContent>
-                        <div className="rounded-md border">
+                        <div className="rounded-md border text-foreground">
                             <Table>
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>Event</TableHead>
                                         <TableHead>Date & Time</TableHead>
+                                        <TableHead>Participants</TableHead>
                                         <TableHead>Status</TableHead>
                                         <TableHead className="text-right">Actions</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {isLoadingData ? (
-                                        <TableSkeleton columns={4} rows={5} />
-                                    ) : filteredEvents.map((event) => (
-                                        <TableRow key={event._id}>
-                                            <TableCell className="font-medium">{event.name}</TableCell>
-                                            <TableCell>
-                                                <div className='flex flex-col'>
-                                                    <span>{new Date(event.date).toLocaleDateString()}</span>
-                                                    <span className='text-xs text-muted-foreground'>{event.startTime} - {event.endTime}</span>
-                                                </div>
-                                            </TableCell>
-                                            <TableCell>
-                                                {!event.isComplete ? ( 
-                                                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-                                                        <Clock className='h-3 w-3 mr-1'/> Upcoming
-                                                    </Badge>
-                                                ) : event.certificatesIssued ? (
-                                                    <Badge variant="outline" className="bg-green-50 text-green-700">Issued</Badge>
-                                                ) : (
-                                                    <Button size="sm" onClick={() => handleIssuanceChoice(event, 'attended')}>Issue Certificates</Button>
-                                                )}
-                                            </TableCell>
-                                            <TableCell className="text-right">
-                                                <DropdownMenu>
-                                                    <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                                                    <DropdownMenuContent align="end">
-                                                        <DropdownMenuItem onClick={() => setAttendanceEvent(event)}>Attendance Report</DropdownMenuItem>
-                                                        <DropdownMenuItem onClick={() => handleGenerateQR(event)}>Show QR</DropdownMenuItem>
-                                                    </DropdownMenuContent>
-                                                </DropdownMenu>
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
+                                        <TableSkeleton columns={5} rows={5} />
+                                    ) : filteredEvents.length === 0 ? (
+                                        <TableRow><TableCell colSpan={5} className="text-center py-8">No events found.</TableCell></TableRow>
+                                    ) : (
+                                        filteredEvents.map((event) => (
+                                            <TableRow key={event._id}>
+                                                <TableCell className="font-medium">{event.name}</TableCell>
+                                                <TableCell>
+                                                     <div className='flex flex-col'>
+                                                        <span>{new Date(event.date).toLocaleDateString()}</span>
+                                                        <span className='text-xs text-muted-foreground'>{event.startTime} - {event.endTime}</span>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>{event.participants?.length || 0}</TableCell>
+                                                <TableCell>
+                                                    {!event.isComplete ? ( 
+                                                        <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                                                            <Clock className='h-3 w-3 mr-1'/> Upcoming
+                                                        </Badge>
+                                                    ) : event.certificatesIssued ? (
+                                                        <div className="flex flex-col space-y-1">
+                                                            <span className="text-xs text-green-600 font-semibold flex items-center">
+                                                                <UserCheck className="h-4 w-4 mr-1"/> Issued
+                                                            </span>
+                                                            <Button onClick={() => handleIssueCertificates(event)} variant="outline" size="xs" className="h-6 px-2 text-xs border-green-600 text-green-600">Issue Remaining</Button>
+                                                        </div>
+                                                    ) : (
+                                                        <DropdownMenu>
+                                                            <DropdownMenuTrigger asChild>
+                                                                <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">Issue Certificates <MoreHorizontal className='h-4 w-4 ml-1'/></Button>
+                                                            </DropdownMenuTrigger>
+                                                            <DropdownMenuContent align="end">
+                                                                <DropdownMenuItem onClick={() => handleIssuanceChoice(event, 'attended')}><CheckCircle2 className="h-4 w-4 mr-2 text-green-600"/> ONLY Attended (POAP)</DropdownMenuItem>
+                                                                <DropdownMenuItem onClick={() => handleIssuanceChoice(event, 'all')}><Users className="h-4 w-4 mr-2 text-blue-600"/> ALL Registered</DropdownMenuItem>
+                                                            </DropdownMenuContent>
+                                                        </DropdownMenu>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    <DropdownMenu>
+                                                        <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                                                        <DropdownMenuContent align="end">
+                                                            <DropdownMenuItem onClick={() => setSelectedEvent(event)}>View Participants</DropdownMenuItem>
+                                                            <DropdownMenuItem onClick={() => setAttendanceEvent(event)}>Attendance Report</DropdownMenuItem>
+                                                            <DropdownMenuItem onClick={() => handleGenerateQR(event)}>Show Check-In QR</DropdownMenuItem>
+                                                            <DropdownMenuItem onClick={() => copyToClipboard(event)}>Copy Public Link</DropdownMenuItem>
+                                                        </DropdownMenuContent>
+                                                    </DropdownMenu>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
+                                    )}
                                 </TableBody>
                             </Table>
                         </div>
@@ -394,7 +468,6 @@ function EventManagementPage() {
 }
 
 // --- STANDALONE TIMER COMPONENT ---
-// Fixed: Using React.useState/useEffect for standalone scope
 const QRTimer = ({ expiresAt }) => {
     const [timeLeft, setTimeLeft] = React.useState("");
 
