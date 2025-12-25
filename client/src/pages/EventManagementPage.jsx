@@ -287,18 +287,18 @@ function EventManagementPage() {
 // Update the state to include expiresAt
 
 const handleGenerateQR = async (event) => {
-    try {
-        const res = await api.post(`/poap/event/${event._id}/qr`); // Change to POST as per updated controller
-        setQrData({ 
-            img: res.data.qrCode, 
-            url: res.data.checkInUrl,
-            expiresAt: res.data.expiresAt // Store the expiry timestamp
-        });
-        setIsQROpen(true); 
-    } catch (e) {
-        alert("Failed to generate QR code.");
-    }
-};
+        try {
+            const res = await api.post(`/poap/event/${event._id}/qr`);
+            setQrData({ 
+                img: res.data.qrCode, 
+                url: res.data.checkInUrl,
+                expiresAt: res.data.expiresAt 
+            });
+            setIsQROpen(true); 
+        } catch (e) {
+            alert("Failed to generate QR code.");
+        }
+    };
     const copyToClipboard = (event) => {
         const publicUrl = `${window.location.origin}/event/${event._id}`;
         navigator.clipboard.writeText(publicUrl);
@@ -445,26 +445,21 @@ const handleGenerateQR = async (event) => {
                 </div>
 
                 <Dialog open={isQROpen} onOpenChange={setIsQROpen}>
-    <DialogContent className="sm:max-w-md text-center">
-        <DialogHeader>
-            <DialogTitle>Event Check-In QR</DialogTitle>
-            <DialogDescription>
-                Scan to verify attendance. This code is dynamic.
-            </DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col items-center gap-4 py-4">
-            {qrData.img ? (
-                <>
-                    <img src={qrData.img} alt="QR Code" className="w-64 h-64 border rounded-lg p-2 bg-white shadow-sm" />
-                    
-                    {/* ADD THE TIMER HERE */}
-                    <QRTimer expiresAt={qrData.expiresAt} />
-                    
-                </>
-            ) : (
-                <Loader2 className="h-10 w-10 animate-spin text-primary" />
-            )}
-            
+                <DialogContent className="sm:max-w-md text-center">
+                    <DialogHeader>
+                        <DialogTitle>Event Check-In QR</DialogTitle>
+                        <DialogDescription>Scan to verify attendance. Dynamic expiry active.</DialogDescription>
+                    </DialogHeader>
+                    <div className="flex flex-col items-center gap-4 py-4">
+                        {qrData.img ? (
+                            <>
+                                <img src={qrData.img} alt="QR Code" className="w-64 h-64 border rounded-lg p-2 bg-white" />
+                                {/* CALL THE TIMER COMPONENT HERE */}
+                                <QRTimer expiresAt={qrData.expiresAt} />
+                            </>
+                        ) : (
+                            <Loader2 className="h-10 w-10 animate-spin" />
+                        )}
             <div className="w-full">
                 <Label className="mb-2 block text-left">Check-In Link</Label>
                 <div className="flex items-center gap-2">
@@ -643,10 +638,12 @@ const handleGenerateQR = async (event) => {
     );
 }
 // Place this at the end of the file
+// --- STANDALONE TIMER COMPONENT ---
 const QRTimer = ({ expiresAt }) => {
     const [timeLeft, setTimeLeft] = React.useState("");
 
     React.useEffect(() => {
+        if (!expiresAt) return;
         const timer = setInterval(() => {
             const diff = new Date(expiresAt) - new Date();
             if (diff <= 0) {
@@ -662,13 +659,12 @@ const QRTimer = ({ expiresAt }) => {
     }, [expiresAt]);
 
     return (
-        <div className={`mt-2 font-mono font-bold text-lg p-2 rounded-lg ${
-            timeLeft === "EXPIRED" ? "text-red-600 bg-red-50" : "text-blue-600 bg-blue-50"
+        <div className={`mt-2 font-mono font-bold text-lg p-3 rounded-lg border ${
+            timeLeft === "EXPIRED" ? "text-red-600 bg-red-50 border-red-200" : "text-blue-600 bg-blue-50 border-blue-100"
         }`}>
-            <span className="text-sm uppercase tracking-wider block opacity-70">QR Validity</span>
+            <div className="text-[10px] uppercase opacity-60">QR Validity Window</div>
             {timeLeft === "EXPIRED" ? "⚠️ EXPIRED" : `⏳ ${timeLeft}`}
         </div>
     );
 };
-
 export default EventManagementPage;
