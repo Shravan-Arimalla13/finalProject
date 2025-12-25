@@ -1,4 +1,4 @@
-// server/controllers/quiz.controller.js - FIXED WITH RETRY LOGIC
+// server/controllers/quiz.controller.js - FIXED GEMINI MODEL NAME
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const Quiz = require('../models/quiz.model');
 const Certificate = require('../models/certificate.model');
@@ -9,8 +9,12 @@ const crypto = require('crypto');
 const { mintNFT } = require('../utils/blockchain');
 const { sendCertificateIssued } = require('../utils/mailer');
 
+// Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const MODEL_NAME = "gemini-1.5-flash";
+
+// ⚠️ FIX: Use the correct model identifier
+// The v1beta API requires specific model names
+const MODEL_NAME = "gemini-1.5-flash-latest"; // Changed from "gemini-1.5-flash"
 
 const cleanJSON = (text) => {
     if (!text) return "";
@@ -114,11 +118,17 @@ exports.getQuizDetails = async (req, res) => {
     }
 };
 
-// --- 4. NEXT QUESTION (WITH RETRY & FALLBACK) ---
+// --- 4. NEXT QUESTION (WITH MULTIPLE MODEL FALLBACKS) ---
 exports.nextQuestion = async (req, res) => {
     const { quizId, history } = req.body;
-    const MAX_RETRIES = 3;
-    let lastError = null;
+    const MAX_RETRIES = 2; // Reduced from 3 since we have multiple models
+    
+    // Try multiple model names in order of preference
+    const MODEL_FALLBACKS = [
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-flash",
+        "gemini-pro"
+    ];
 
     try {
         const quiz = await Quiz.findById(quizId);
@@ -142,58 +152,69 @@ exports.nextQuestion = async (req, res) => {
 
         const previousQuestionsText = history ? history.map(h => h.questionText).join(" | ") : "";
 
-        const prompt = `
-            Generate ONE multiple-choice question about "${quiz.topic}".
-            Difficulty Level: ${difficulty}.
-            DO NOT repeat these concepts: [${previousQuestionsText}].
-            
-            Return ONLY valid JSON in this format (no extra text):
-            {
-                "question": "The question text",
-                "options": ["Option A", "Option B", "Option C", "Option D"],
-                "correctAnswer": "The exact text of the correct option",
-                "explanation": "Short explanation (max 50 words)"
-            }
-        `;
+        const prompt = `Generate ONE multiple-choice question about "${quiz.topic}".
+Difficulty: ${difficulty}.
+Do NOT repeat: [${previousQuestionsText}].
 
-        // RETRY LOOP
-        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            try {
-                console.log(`🤖 AI Request Attempt ${attempt}/${MAX_RETRIES} for ${quiz.topic}`);
-                
-                const model = genAI.getGenerativeModel({ model: MODEL_NAME });
-                const result = await model.generateContent(prompt);
-                const response = await result.response;
-                const text = response.text();
-                
-                const cleaned = cleanJSON(text);
-                const questionData = JSON.parse(cleaned);
-                
-                // Validate response structure
-                if (!questionData.question || !Array.isArray(questionData.options) || 
-                    questionData.options.length !== 4 || !questionData.correctAnswer) {
-                    throw new Error('Invalid AI response structure');
-                }
-                
-                questionData.difficulty = difficulty;
-                console.log(`✅ AI Generated Question (Attempt ${attempt})`);
-                return res.json(questionData);
-                
-            } catch (error) {
-                lastError = error;
-                console.error(`❌ AI Attempt ${attempt} Failed:`, error.message);
-                
-                // Wait before retry (exponential backoff: 1s, 2s, 4s)
-                if (attempt < MAX_RETRIES) {
-                    const waitTime = Math.pow(2, attempt - 1) * 1000;
-                    console.log(`⏳ Retrying in ${waitTime/1000}s...`);
-                    await new Promise(resolve => setTimeout(resolve, waitTime));
+Return ONLY valid JSON (no markdown, no extra text):
+{
+  "question": "Question text here",
+  "options": ["A", "B", "C", "D"],
+  "correctAnswer": "Exact option text",
+  "explanation": "Brief explanation (max 40 words)"
+}`;
+
+        // TRY EACH MODEL
+        for (const modelName of MODEL_FALLBACKS) {
+            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                try {
+                    console.log(`🤖 Trying ${modelName} (Attempt ${attempt}/${MAX_RETRIES})`);
+                    
+                    const model = genAI.getGenerativeModel({ model: modelName });
+                    
+                    // Add timeout to prevent hanging
+                    const timeoutPromise = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Request timeout')), 10000)
+                    );
+                    
+                    const aiPromise = model.generateContent(prompt);
+                    const result = await Promise.race([aiPromise, timeoutPromise]);
+                    
+                    const response = await result.response;
+                    const text = response.text();
+                    
+                    const cleaned = cleanJSON(text);
+                    const questionData = JSON.parse(cleaned);
+                    
+                    // Validate structure
+                    if (!questionData.question || !Array.isArray(questionData.options) || 
+                        questionData.options.length !== 4 || !questionData.correctAnswer) {
+                        throw new Error('Invalid response structure');
+                    }
+                    
+                    questionData.difficulty = difficulty;
+                    console.log(`✅ Success with ${modelName}`);
+                    return res.json(questionData);
+                    
+                } catch (error) {
+                    console.error(`❌ ${modelName} Attempt ${attempt} Failed:`, error.message);
+                    
+                    // Don't retry on auth errors
+                    if (error.message.includes('API key') || error.message.includes('401')) {
+                        console.error('⚠️ API Key issue detected, skipping retries');
+                        break;
+                    }
+                    
+                    // Wait before retry
+                    if (attempt < MAX_RETRIES) {
+                        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+                    }
                 }
             }
         }
 
-        // ALL RETRIES FAILED - Return fallback question
-        console.error('❌ All AI attempts failed, using fallback question');
+        // ALL MODELS FAILED - Use fallback
+        console.error('❌ All AI models failed, using fallback question');
         return res.json(getFallbackQuestion(quiz.topic, difficulty));
 
     } catch (error) {
@@ -205,45 +226,94 @@ exports.nextQuestion = async (req, res) => {
     }
 };
 
-// FALLBACK QUESTIONS (When AI fails)
+// ENHANCED FALLBACK QUESTIONS
 function getFallbackQuestion(topic, difficulty) {
-    const fallbacks = {
-        Easy: {
-            question: `What is a fundamental concept in ${topic}?`,
-            options: [
-                "Understanding core principles",
-                "Ignoring best practices",
-                "Skipping documentation",
-                "Avoiding learning"
-            ],
-            correctAnswer: "Understanding core principles",
-            explanation: "Core principles are the foundation of mastering any topic."
+    const topicLower = topic.toLowerCase();
+    
+    // Topic-specific fallbacks
+    const specificFallbacks = {
+        'javascript': {
+            Easy: {
+                question: "What is the correct way to declare a variable in modern JavaScript?",
+                options: ["let x = 5;", "var x = 5;", "variable x = 5;", "x = 5;"],
+                correctAnswer: "let x = 5;",
+                explanation: "Let is the modern way to declare block-scoped variables."
+            },
+            Medium: {
+                question: "What does 'this' keyword refer to in JavaScript?",
+                options: [
+                    "The current execution context",
+                    "Always the global object",
+                    "The parent function",
+                    "The DOM element"
+                ],
+                correctAnswer: "The current execution context",
+                explanation: "'this' refers to the context in which the function is called."
+            }
         },
-        Medium: {
-            question: `Which approach is most effective when learning ${topic}?`,
-            options: [
-                "Hands-on practice with real projects",
-                "Only reading theory without practice",
-                "Memorizing without understanding",
-                "Avoiding challenging problems"
-            ],
-            correctAnswer: "Hands-on practice with real projects",
-            explanation: "Practical application reinforces theoretical knowledge."
+        'python': {
+            Easy: {
+                question: "Which keyword is used to define a function in Python?",
+                options: ["def", "function", "func", "define"],
+                correctAnswer: "def",
+                explanation: "The 'def' keyword is used to define functions in Python."
+            }
         },
-        Hard: {
-            question: `What distinguishes an expert in ${topic} from a beginner?`,
-            options: [
-                "Deep understanding of tradeoffs and edge cases",
-                "Knowing syntax perfectly",
-                "Using the latest tools",
-                "Writing more lines of code"
-            ],
-            correctAnswer: "Deep understanding of tradeoffs and edge cases",
-            explanation: "Experts can make informed decisions by understanding nuances."
+        'react': {
+            Easy: {
+                question: "What hook is used to manage state in functional React components?",
+                options: ["useState", "useEffect", "useContext", "useReducer"],
+                correctAnswer: "useState",
+                explanation: "useState is the primary hook for managing component state."
+            }
         }
     };
 
-    const fallback = fallbacks[difficulty] || fallbacks.Medium;
+    // Check for topic-specific fallback
+    for (const [key, questions] of Object.entries(specificFallbacks)) {
+        if (topicLower.includes(key)) {
+            return { ...(questions[difficulty] || questions.Easy), difficulty };
+        }
+    }
+
+    // Generic fallbacks
+    const genericFallbacks = {
+        Easy: {
+            question: `What is the most important first step when learning ${topic}?`,
+            options: [
+                "Understanding fundamental concepts",
+                "Memorizing all syntax",
+                "Building complex projects immediately",
+                "Avoiding documentation"
+            ],
+            correctAnswer: "Understanding fundamental concepts",
+            explanation: "Strong fundamentals are essential for mastering any technology."
+        },
+        Medium: {
+            question: `Which learning approach is most effective for ${topic}?`,
+            options: [
+                "Hands-on practice with real projects",
+                "Only reading theory without practice",
+                "Watching tutorials without coding",
+                "Memorizing without understanding"
+            ],
+            correctAnswer: "Hands-on practice with real projects",
+            explanation: "Active practice reinforces theoretical knowledge effectively."
+        },
+        Hard: {
+            question: `What distinguishes an expert in ${topic}?`,
+            options: [
+                "Deep understanding of tradeoffs and design patterns",
+                "Knowing all syntax by heart",
+                "Using the newest tools only",
+                "Writing the most code"
+            ],
+            correctAnswer: "Deep understanding of tradeoffs and design patterns",
+            explanation: "Experts can make informed architectural decisions."
+        }
+    };
+
+    const fallback = genericFallbacks[difficulty] || genericFallbacks.Medium;
     return { ...fallback, difficulty };
 }
 
@@ -274,6 +344,7 @@ exports.submitQuiz = async (req, res) => {
             return res.json({ 
                 passed: true, 
                 score: percentage,
+                certificateId: (await Certificate.findOne({ eventName: certName, studentEmail: normalizedEmail })).certificateId,
                 message: "You already have this certificate!" 
             });
         }
