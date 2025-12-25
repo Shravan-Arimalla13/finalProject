@@ -97,6 +97,65 @@ async function generateQuestionWithRetry(prompt, maxRetries = AI_CONFIG.maxRetri
     throw lastError;
 }
 
+
+
+/**
+ * GET QUIZ DETAILS
+ * GET /api/quiz/:quizId/details
+ */
+exports.getQuizDetails = async (req, res) => {
+    try {
+        const { quizId } = req.params;
+        const quiz = await Quiz.findById(quizId);
+        
+        if (!quiz) return res.status(404).json({ message: "Quiz not found" });
+
+        const certName = `Certified: ${quiz.topic}`;
+        const existingCert = await Certificate.findOne({ 
+            eventName: certName, 
+            studentEmail: req.user.email.toLowerCase() 
+        });
+
+        res.json({
+            topic: quiz.topic,
+            description: quiz.description,
+            totalQuestions: quiz.totalQuestions,
+            passingScore: quiz.passingScore,
+            hasPassed: !!existingCert,
+            certificateId: existingCert?.certificateId
+        });
+    } catch (error) {
+        res.status(500).json({ message: "Server Error" });
+    }
+};
+
+/**
+ * CREATE QUIZ
+ * POST /api/quiz/create
+ */
+exports.createQuiz = async (req, res) => {
+    try {
+        const { topic, description, totalQuestions, passingScore } = req.body;
+        const userDept = (req.user.department || 'General').toUpperCase();
+
+        const newQuiz = new Quiz({
+            topic: topic.trim(),
+            description: description.trim(), 
+            totalQuestions: totalQuestions || 15, 
+            passingScore: passingScore || 60,
+            createdBy: req.user.id,
+            department: userDept,
+            isActive: true
+        });
+        
+        await newQuiz.save();
+        res.status(201).json({ message: 'Quiz created successfully!', quizId: newQuiz._id });
+    } catch (error) {
+        res.status(500).json({ message: "Failed to create quiz" });
+    }
+};
+
+// ... (Keep your getAvailableQuizzes, nextQuestion, and submitQuiz logic)
 /**
  * GET NEXT ADAPTIVE QUESTION
  * Uses student history to scale difficulty
@@ -241,3 +300,6 @@ exports.submitQuiz = async (req, res) => {
         res.status(500).json({ message: "Error submitting quiz" });
     }
 };
+
+
+// ... (Keep all the AI Generation and nextQuestion logic from your prompt)
