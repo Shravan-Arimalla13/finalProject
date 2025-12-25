@@ -1,4 +1,3 @@
-// client/src/pages/EventManagementPage.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../api';
 import ParticipantsModal from '../components/ParticipantsModal';
@@ -14,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge"; // Fixed: Import Badge to prevent ReferenceError
 import {
   Dialog,
   DialogContent,
@@ -22,7 +22,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { MoreHorizontal, Search, PenTool, RefreshCcw, Loader2, QrCode, Copy, MapPin, Clock, CheckCircle2, Award, Users, UserCheck } from "lucide-react"; 
+import { 
+  MoreHorizontal, Search, PenTool, RefreshCcw, Loader2, QrCode, 
+  Copy, MapPin, Clock, CheckCircle2, Award, Users, UserCheck 
+} from "lucide-react"; 
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,7 +51,7 @@ function EventManagementPage() {
 
     // QR Modal State
     const [isQROpen, setIsQROpen] = useState(false);
-    const [qrData, setQrData] = useState({ img: null, url: '', expiresAt: null });
+    const [qrData, setQrData] = useState({ img: null, url: '', expiresAt: null, eventId: null });
 
     // --- CREATE FORM STATE ---
     const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -80,13 +83,9 @@ function EventManagementPage() {
     useEffect(() => { fetchEvents(); }, []);
 
     useEffect(() => {
-        if (user) {
-            if (user.role === 'Faculty' && user.department) {
-                const formalDept = `DEPARTMENT OF ${user.department.toUpperCase()}`; 
-                setFormData(prev => ({ ...prev, headerDepartment: formalDept }));
-            } else if (user.role === 'SuperAdmin') {
-                setFormData(prev => ({ ...prev, headerDepartment: 'OTHER' }));
-            }
+        if (user && user.role === 'Faculty' && user.department) {
+            const formalDept = `DEPARTMENT OF ${user.department.toUpperCase()}`; 
+            setFormData(prev => ({ ...prev, headerDepartment: formalDept }));
         }
     }, [user]);
 
@@ -95,7 +94,6 @@ function EventManagementPage() {
         try {
             const response = await api.get('/events');
             setEvents(response.data);
-            
             if (response.data.length > 0) {
                 const latest = response.data.reduce((a, b) => (new Date(a.createdAt) > new Date(b.createdAt) ? a : b));
                 if (latest.certificateConfig) {
@@ -110,6 +108,15 @@ function EventManagementPage() {
         }
     };
 
+    const handleImageUpload = (e, setFunction) => {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = () => setFunction(reader.result);
+            reader.readAsDataURL(file);
+        }
+    };
+
     const handleLocationChange = (field, value) => {
         setFormData(prev => ({ 
             ...prev, 
@@ -120,7 +127,7 @@ function EventManagementPage() {
     const setLocationToCurrent = () => {
         setIsGpsLoading(true);
         if (!navigator.geolocation) {
-            alert("Geolocation not supported by your browser.");
+            alert("Geolocation not supported.");
             setIsGpsLoading(false);
             return;
         }
@@ -136,7 +143,6 @@ function EventManagementPage() {
                     }
                 }));
                 setIsGpsLoading(false);
-                alert("Location Captured.");
             },
             () => {
                 alert("Location Capture Failed.");
@@ -148,12 +154,8 @@ function EventManagementPage() {
 
     const handleCreateEvent = async () => {
         if (isCreating) return; 
-        if (!formData.name || !formData.date || !formData.startTime || !formData.endTime) {
-            alert("Please fill in required fields.");
-            return;
-        }
-
         setIsCreating(true); 
+
         const finalDept = formData.headerDepartment === 'OTHER' ? customDeptInput : formData.headerDepartment;
         const finalTitle = formData.certificateTitle === 'OTHER' ? customTitleInput : formData.certificateTitle;
 
@@ -166,11 +168,14 @@ function EventManagementPage() {
             await api.post('/events', {
                 ...formData, 
                 certificateConfig: {
-                    ...formData,
+                    collegeName: formData.collegeName,
+                    customSignatureText: formData.customSignatureText,
                     collegeLogo: logoImage, 
                     signatureImage: finalSignature,
                     headerDepartment: finalDept,
                     certificateTitle: finalTitle,
+                    eventType: formData.eventType,
+                    eventDuration: formData.eventDuration
                 }
             });
             setIsDialogOpen(false); 
@@ -182,6 +187,21 @@ function EventManagementPage() {
         }
     };
 
+    const handleGenerateQR = async (event) => {
+        try {
+            const res = await api.post(`/poap/event/${event._id}/qr`); //
+            setQrData({ 
+                img: res.data.qrCode, 
+                url: res.data.checkInUrl,
+                expiresAt: res.data.expiresAt, //
+                eventId: event._id
+            });
+            setIsQROpen(true); 
+        } catch (e) {
+            alert("Failed to generate QR code.");
+        }
+    };
+
     const handleIssuanceChoice = (event, type) => {
         if (!window.confirm("Confirm issuance?")) return;
         setIssueLoading(event._id);
@@ -190,55 +210,23 @@ function EventManagementPage() {
                 setIssueMessage({ id: event._id, text: response.data.message });
                 fetchEvents();
            })
-           .catch(err => setIssueError({ id: event._id, text: "Issuance Failed." }))
+           .catch(() => setIssueError({ id: event._id, text: "Issuance Failed." }))
            .finally(() => setIssueLoading(null));
-    };
-
-    const handleIssueCertificates = (event) => {
-        if (!window.confirm(`Issue to remaining participants?`)) return;
-        setIssueLoading(event._id);
-        api.post(`/certificates/issue/event/${event._id}`)
-           .then(response => {
-                setIssueMessage({ id: event._id, text: response.data.message });
-                fetchEvents();
-           })
-           .catch(err => setIssueError({ id: event._id, text: 'Issuance Failed.' }))
-           .finally(() => setIssueLoading(null));
-    };
-
-    const handleGenerateQR = async (event) => {
-        try {
-            const res = await api.post(`/poap/event/${event._id}/qr`);
-            setQrData({ 
-                img: res.data.qrCode, 
-                url: res.data.checkInUrl,
-                expiresAt: res.data.expiresAt 
-            });
-            setIsQROpen(true); 
-        } catch (e) {
-            alert("Failed to generate QR code.");
-        }
-    };
-
-    const copyToClipboard = (event) => {
-        const publicUrl = `${window.location.origin}/event/${event._id}`;
-        navigator.clipboard.writeText(publicUrl);
-        alert('Copied!');
     };
 
     const filteredEvents = events.filter(event => event.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
     return (
         <div className="min-h-screen bg-muted/40 p-4 md:p-8">
-            <div className="max-w-7xl mx-auto">
+            <div className="max-w-7xl mx-auto text-foreground">
                 <div className="flex justify-between items-center mb-6">
-                    <h1 className="text-3xl font-bold text-foreground">Event Management</h1>
+                    <h1 className="text-3xl font-bold">Event Management</h1>
                     
                     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                         <DialogTrigger asChild>
                             <Button size="lg"> + Create New Event</Button>
                         </DialogTrigger>
-                        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto text-foreground">
+                        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
                             <DialogHeader>
                                 <DialogTitle>Create Event & Design Certificate</DialogTitle>
                                 <DialogDescription>Configure attendance, time lock, and branding.</DialogDescription>
@@ -281,12 +269,20 @@ function EventManagementPage() {
                                                     onChange={(e) => handleLocationChange('address', e.target.value)}
                                                 />
                                                 <Button onClick={setLocationToCurrent} disabled={isGpsLoading} variant="secondary">
-                                                    {isGpsLoading ? <Loader2 className="animate-spin" /> : "Capture GPS"}
+                                                    {isGpsLoading ? <Loader2 className="animate-spin" /> : <MapPin className="h-4 w-4" />}
                                                 </Button>
                                             </div>
                                         </div>
                                     </CardContent>
                                 </Card>
+
+                                <div className="space-y-2">
+                                    <Label className="flex items-center gap-2"><PenTool className="h-4 w-4" /> Digital Signature</Label>
+                                    <div className="relative rounded-md border-2 border-dashed border-input bg-white h-40">
+                                        <SignatureCanvas ref={sigPadRef} penColor="black" canvasProps={{ className: 'w-full h-full' }} />
+                                    </div>
+                                    <Input type="file" accept="image/png" onChange={(e) => handleImageUpload(e, setSignatureImage)} />
+                                </div>
                             </div>
 
                             <Button onClick={handleCreateEvent} className="w-full" disabled={isCreating}>
@@ -296,7 +292,6 @@ function EventManagementPage() {
                     </Dialog>
                 </div>
 
-                {/* QR MODAL */}
                 <Dialog open={isQROpen} onOpenChange={setIsQROpen}>
                     <DialogContent className="sm:max-w-md text-center text-foreground">
                         <DialogHeader>
@@ -307,7 +302,8 @@ function EventManagementPage() {
                             {qrData.img ? (
                                 <>
                                     <img src={qrData.img} alt="QR Code" className="w-64 h-64 border rounded-lg p-2 bg-white" />
-                                    <QRTimer expiresAt={qrData.expiresAt} />
+                                    {/* Timer Component */}
+                                    <QRTimer expiresAt={qrData.expiresAt} /> 
                                 </>
                             ) : (
                                 <Loader2 className="h-10 w-10 animate-spin text-primary" />
@@ -319,7 +315,9 @@ function EventManagementPage() {
                                     <Button size="icon" variant="outline" onClick={() => {
                                         navigator.clipboard.writeText(qrData.url);
                                         alert("Copied!");
-                                    }}><Copy className="h-4 w-4" /></Button>
+                                    }}>
+                                        <Copy className="h-4 w-4" />
+                                    </Button>
                                 </div>
                             </div>
                             <Button variant="ghost" size="sm" onClick={() => handleGenerateQR({_id: qrData.eventId})}>
@@ -329,30 +327,28 @@ function EventManagementPage() {
                     </DialogContent>
                 </Dialog>
 
-                {/* EVENT LIST TABLE */}
                 <Card className="shadow-lg">
                     <CardHeader>
                         <CardTitle>Existing Events</CardTitle>
-                        <div className="relative pt-4 text-foreground">
-                            <Input placeholder="Search events..." className="pl-10" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                        <div className="relative pt-4">
+                            <Input placeholder="Search..." className="pl-10" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                             <Search className="absolute left-3 top-6 h-5 w-5 text-muted-foreground" />
                         </div>
                     </CardHeader>
                     <CardContent>
-                        <div className="rounded-md border text-foreground">
+                        <div className="rounded-md border">
                             <Table>
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>Event</TableHead>
                                         <TableHead>Date & Time</TableHead>
-                                        <TableHead>Participants</TableHead>
                                         <TableHead>Status</TableHead>
                                         <TableHead className="text-right">Actions</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {isLoadingData ? (
-                                        <TableSkeleton columns={5} rows={5} />
+                                        <TableSkeleton columns={4} rows={5} />
                                     ) : filteredEvents.map((event) => (
                                         <TableRow key={event._id}>
                                             <TableCell className="font-medium">{event.name}</TableCell>
@@ -362,40 +358,23 @@ function EventManagementPage() {
                                                     <span className='text-xs text-muted-foreground'>{event.startTime} - {event.endTime}</span>
                                                 </div>
                                             </TableCell>
-                                            <TableCell>{event.participants?.length || 0}</TableCell>
                                             <TableCell>
                                                 {!event.isComplete ? ( 
                                                     <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
                                                         <Clock className='h-3 w-3 mr-1'/> Upcoming
                                                     </Badge>
                                                 ) : event.certificatesIssued ? (
-                                                    <div className="flex flex-col space-y-1">
-                                                        <span className="text-xs text-green-600 font-semibold flex items-center">
-                                                            <UserCheck className="h-4 w-4 mr-1"/> Issued
-                                                        </span>
-                                                        <Button onClick={() => handleIssueCertificates(event)} variant="outline" size="xs" className="h-6 px-2 text-xs border-green-600 text-green-600">Issue Remaining</Button>
-                                                    </div>
+                                                    <Badge variant="outline" className="bg-green-50 text-green-700">Issued</Badge>
                                                 ) : (
-                                                    <DropdownMenu>
-                                                        <DropdownMenuTrigger asChild>
-                                                            <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">Issue Certificates <MoreHorizontal className='h-4 w-4 ml-1'/></Button>
-                                                        </DropdownMenuTrigger>
-                                                        <DropdownMenuContent align="end">
-                                                            <DropdownMenuItem onClick={() => handleIssuanceChoice(event, 'attended')}><CheckCircle2 className="h-4 w-4 mr-2 text-green-600"/> ONLY Attended (POAP)</DropdownMenuItem>
-                                                            <DropdownMenuItem onClick={() => handleIssuanceChoice(event, 'all')}><Users className="h-4 w-4 mr-2 text-blue-600"/> ALL Registered</DropdownMenuItem>
-                                                        </DropdownMenuContent>
-                                                    </DropdownMenu>
+                                                    <Button size="sm" onClick={() => handleIssuanceChoice(event, 'attended')}>Issue Certificates</Button>
                                                 )}
-                                                {issueMessage.id === event._id && <div className="text-xs text-green-600 mt-1">✅ {issueMessage.text}</div>}
                                             </TableCell>
                                             <TableCell className="text-right">
                                                 <DropdownMenu>
-                                                    <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                                                    <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                                                     <DropdownMenuContent align="end">
-                                                        <DropdownMenuItem onClick={() => setSelectedEvent(event)}>View Participants</DropdownMenuItem>
-                                                        <DropdownMenuItem onClick={() => setAttendanceEvent(event)}>View Attendance Report</DropdownMenuItem>
-                                                        <DropdownMenuItem onClick={() => handleGenerateQR(event)}>Show Check-In QR</DropdownMenuItem>
-                                                        <DropdownMenuItem onClick={() => copyToClipboard(event)}>Copy Public Link</DropdownMenuItem>
+                                                        <DropdownMenuItem onClick={() => setAttendanceEvent(event)}>Attendance Report</DropdownMenuItem>
+                                                        <DropdownMenuItem onClick={() => handleGenerateQR(event)}>Show QR</DropdownMenuItem>
                                                     </DropdownMenuContent>
                                                 </DropdownMenu>
                                             </TableCell>
@@ -415,11 +394,11 @@ function EventManagementPage() {
 }
 
 // --- STANDALONE TIMER COMPONENT ---
-// Defined outside to prevent ReferenceError and maintain scope
+// Fixed: Using React.useState/useEffect for standalone scope
 const QRTimer = ({ expiresAt }) => {
-    const [timeLeft, setTimeLeft] = useState("");
+    const [timeLeft, setTimeLeft] = React.useState("");
 
-    useEffect(() => {
+    React.useEffect(() => {
         if (!expiresAt) return;
         const timer = setInterval(() => {
             const diff = new Date(expiresAt) - new Date();
