@@ -49,7 +49,9 @@ function EventManagementPage() {
 
     // QR Modal State
     const [isQROpen, setIsQROpen] = useState(false);
-    const [qrData, setQrData] = useState({ img: null, url: '' });
+    // const [qrData, setQrData] = useState({ img: null, url: '' });
+    const [qrData, setQrData] = useState({ img: null, url: '', expiresAt: null });
+
 
     // --- CREATE FORM STATE ---
     const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -280,22 +282,32 @@ function EventManagementPage() {
     const handleViewParticipants = (event) => setSelectedEvent(event);
     const handleViewAttendance = (event) => setAttendanceEvent(event);
     
-    const handleGenerateQR = async (event) => {
-        try {
-            const res = await api.get(`/poap/event/${event._id}/qr`);
-            setQrData({ img: res.data.qrCode, url: res.data.checkInUrl });
-            setIsQROpen(true); 
-        } catch (e) {
-            alert("Failed to generate QR code. Ensure event is saved and you are logged in.");
-        }
-    };
+// Inside EventManagementPage.jsx
 
+// Update the state to include expiresAt
+
+const handleGenerateQR = async (event) => {
+    try {
+        const res = await api.post(`/poap/event/${event._id}/qr`); // Change to POST as per updated controller
+        setQrData({ 
+            img: res.data.qrCode, 
+            url: res.data.checkInUrl,
+            expiresAt: res.data.expiresAt // Store the expiry timestamp
+        });
+        setIsQROpen(true); 
+    } catch (e) {
+        alert("Failed to generate QR code.");
+    }
+};
     const copyToClipboard = (event) => {
         const publicUrl = `${window.location.origin}/event/${event._id}`;
         navigator.clipboard.writeText(publicUrl);
         alert('Copied!');
     };
 
+
+
+    
     const filteredEvents = events.filter(event => event.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
     return (
@@ -431,6 +443,48 @@ function EventManagementPage() {
                         </DialogContent>
                     </Dialog>
                 </div>
+
+                <Dialog open={isQROpen} onOpenChange={setIsQROpen}>
+    <DialogContent className="sm:max-w-md text-center">
+        <DialogHeader>
+            <DialogTitle>Event Check-In QR</DialogTitle>
+            <DialogDescription>
+                Scan to verify attendance. This code is dynamic.
+            </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col items-center gap-4 py-4">
+            {qrData.img ? (
+                <>
+                    <img src={qrData.img} alt="QR Code" className="w-64 h-64 border rounded-lg p-2 bg-white shadow-sm" />
+                    
+                    {/* ADD THE TIMER HERE */}
+                    <QRTimer expiresAt={qrData.expiresAt} />
+                    
+                </>
+            ) : (
+                <Loader2 className="h-10 w-10 animate-spin text-primary" />
+            )}
+            
+            <div className="w-full">
+                <Label className="mb-2 block text-left">Check-In Link</Label>
+                <div className="flex items-center gap-2">
+                    <Input value={qrData.url} readOnly className="bg-muted text-xs font-mono" />
+                    <Button size="icon" variant="outline" onClick={() => {
+                        navigator.clipboard.writeText(qrData.url);
+                        alert("Copied!");
+                    }}>
+                        <Copy className="h-4 w-4" />
+                    </Button>
+                </div>
+            </div>
+            
+            {/* ADD A REGENERATE BUTTON */}
+            <Button variant="ghost" size="sm" onClick={() => handleGenerateQR({_id: attendanceEvent?._id})}>
+                <RefreshCcw className="h-3 w-3 mr-2" /> Regenerate if Expired
+            </Button>
+        </div>
+    </DialogContent>
+</Dialog>
 
                 {/* --- EVENT LIST TABLE --- */}
                 <Card className="shadow-lg">
@@ -578,6 +632,9 @@ function EventManagementPage() {
                                 </div>
                             </div>
                         </div>
+                        <div className={`mt-2 font-mono font-bold text-lg ${timeLeft === "EXPIRED" ? "text-red-500" : "text-blue-600"}`}>
+            Expires in: {timeLeft}
+        </div>
                     </DialogContent>
                 </Dialog>
 
@@ -585,5 +642,33 @@ function EventManagementPage() {
         </div>
     );
 }
+// Place this at the end of the file
+const QRTimer = ({ expiresAt }) => {
+    const [timeLeft, setTimeLeft] = React.useState("");
+
+    React.useEffect(() => {
+        const timer = setInterval(() => {
+            const diff = new Date(expiresAt) - new Date();
+            if (diff <= 0) {
+                setTimeLeft("EXPIRED");
+                clearInterval(timer);
+            } else {
+                const mins = Math.floor((diff / 1000 / 60) % 60);
+                const secs = Math.floor((diff / 1000) % 60);
+                setTimeLeft(`${mins}:${secs < 10 ? '0' : ''}${secs}`);
+            }
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [expiresAt]);
+
+    return (
+        <div className={`mt-2 font-mono font-bold text-lg p-2 rounded-lg ${
+            timeLeft === "EXPIRED" ? "text-red-600 bg-red-50" : "text-blue-600 bg-blue-50"
+        }`}>
+            <span className="text-sm uppercase tracking-wider block opacity-70">QR Validity</span>
+            {timeLeft === "EXPIRED" ? "⚠️ EXPIRED" : `⏳ ${timeLeft}`}
+        </div>
+    );
+};
 
 export default EventManagementPage;

@@ -72,10 +72,43 @@ class POAPService {
     /**
      * Calculate attendance score using IST
      */
-    calculateAttendanceScore(eventDate, startTime, checkInTime) {
-        // Use IST-aware calculation
-        return calculateAttendanceScoreIST(eventDate, startTime, checkInTime);
+    // server/services/poap.service.js
+
+// server/services/poap.service.js
+
+/**
+ * Calculate attendance score based on punctuality with a Grace Period
+ * Ensures a student checking in at 4:25 for a 4:20 event is marked ON-TIME.
+ */
+calculateAttendanceScoreIST(eventDate, startTime, checkInTime) {
+    const [sHour, sMin] = startTime.split(':').map(Number);
+    const scheduledStart = new Date(eventDate);
+    scheduledStart.setHours(sHour, sMin, 0, 0);
+
+    // FIX: 10-minute Grace Period
+    // If check-in is within 10 minutes of start, give 100 score (On-Time)
+    const gracePeriodEnd = new Date(scheduledStart.getTime() + 10 * 60 * 1000);
+
+    if (checkInTime <= gracePeriodEnd) {
+        return 100; // On-Time
     }
+    
+    // Late: Deduct 5 points per 10 minutes past the scheduled start
+    const lateMinutes = (checkInTime - scheduledStart) / (1000 * 60);
+    const deduction = Math.floor(lateMinutes / 10) * 5;
+    return Math.max(50, 100 - deduction);
+}
+
+/**
+ * Validates the 10-minute window for the specific QR token
+ */
+validateTokenExpiry(expiryDate) {
+    const now = new Date();
+    if (now > expiryDate) {
+        return { isValid: false, message: "QR Code has expired. Please ask the faculty to regenerate." };
+    }
+    return { isValid: true };
+}
 
     validateLocation(userLat, userLon, eventLat, eventLon, radiusKm = 0.5) {
         const userVal = validateGPSCoordinates(userLat, userLon);
