@@ -14,7 +14,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Use the stable alias 'gemini-1.5-flash'
 // This automatically routes to the current active version (001, 002, etc.)
-const MODEL_NAME = "gemini-2.5-flash"; 
+const MODEL_NAME = "gemini-1.5-flash"; 
 
 // Helper to clean AI response
 const cleanJSON = (text) => {
