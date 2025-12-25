@@ -8,11 +8,19 @@ const crypto = require('crypto');
 const { mintNFT } = require('../utils/blockchain');
 const { sendCertificateIssued } = require('../utils/mailer');
 
-// Initialize Gemini AI
+// --- INITIALIZATION FIX ---
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+// Use explicit model paths to avoid 404 errors on v1beta
+const MODEL_FALLBACKS = [
+    "models/gemini-1.5-flash", 
+    "models/gemini-1.5-pro",
+    "models/gemini-pro"
+];
 
 const cleanJSON = (text) => {
     if (!text) return "";
+    // Removes markdown backticks if AI includes them
     return text.replace(/```json/g, '').replace(/```/g, '').trim();
 };
 
@@ -115,15 +123,9 @@ exports.getQuizDetails = async (req, res) => {
     }
 };
 
-// --- 4. NEXT QUESTION (FIXED API VERSION & ERROR HANDLING) ---
+// --- 4. NEXT QUESTION (THE FINAL FIX) ---
 exports.nextQuestion = async (req, res) => {
     const { quizId, history } = req.body;
-    
-    // Stable model names for v1 SDK
-    const MODEL_FALLBACKS = [
-        "gemini-1.5-flash",
-        "gemini-1.5-pro"
-    ];
 
     try {
         const quiz = await Quiz.findById(quizId);
@@ -131,93 +133,82 @@ exports.nextQuestion = async (req, res) => {
 
         const currentQIndex = history ? history.length : 0;
         let difficulty = 'Medium';
-        const phase1Limit = Math.floor(quiz.totalQuestions * 0.33);
+        
+        // Adaptive logic
+        if (currentQIndex < 3) difficulty = 'Easy';
+        else if (history.slice(-3).filter(h => h.isCorrect).length >= 2) difficulty = 'Hard';
 
-        if (currentQIndex < phase1Limit) {
-            difficulty = 'Easy';
-        } else if (history && history.length >= 3) {
-            const recent = history.slice(-3);
-            const correctCount = recent.filter(h => h.isCorrect).length;
-            if (correctCount === 3) difficulty = 'Hard';
-            else if (correctCount >= 1) difficulty = 'Medium';
-            else difficulty = 'Easy';
-        }
-
-        const previousQuestionsText = history ? history.map(h => h.questionText).slice(-5).join(" | ") : "";
+        const previousQuestionsText = history ? history.map(h => h.questionText).slice(-5).join(" | ") : "None";
 
         const prompt = `Generate ONE multiple-choice question about "${quiz.topic}".
 Difficulty: ${difficulty}.
-Description: ${quiz.description || 'General information'}.
-Do NOT repeat these exact concepts: [${previousQuestionsText}].
-
 Return ONLY valid JSON:
 {
-  "question": "Question text here",
+  "question": "Question text?",
   "options": ["A", "B", "C", "D"],
-  "correctAnswer": "Exact option text",
-  "explanation": "Brief explanation"
+  "correctAnswer": "Exact text of correct option",
+  "explanation": "Why this is correct"
 }`;
 
-        // Model Swapping Loop
+        // Attempting models with explicit 'models/' prefix
         for (const modelName of MODEL_FALLBACKS) {
             try {
-                console.log(`🤖 Requesting ${modelName}...`);
+                console.log(`🤖 Attempting: ${modelName}`);
+                
                 const model = genAI.getGenerativeModel({ model: modelName });
                 
-                const result = await model.generateContent({
-                    contents: [{ role: "user", parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        temperature: 0.7,
-                        maxOutputTokens: 500,
-                    },
-                });
-
+                // Using the most basic calling structure for maximum compatibility
+                const result = await model.generateContent(prompt);
                 const response = await result.response;
                 const text = response.text();
                 
+                if (!text) throw new Error("Empty response");
+
                 const cleaned = cleanJSON(text);
                 const questionData = JSON.parse(cleaned);
                 
-                // Validate structure
-                if (!questionData.question || !Array.isArray(questionData.options) || questionData.options.length !== 4) {
-                    throw new Error('Malformed AI response');
+                // Final validation of AI output
+                if (questionData.question && Array.isArray(questionData.options)) {
+                    questionData.difficulty = difficulty;
+                    console.log(`✅ Success with ${modelName}`);
+                    return res.json(questionData);
                 }
-                
-                questionData.difficulty = difficulty;
-                console.log(`✅ Success with ${modelName}`);
-                return res.json(questionData);
-                
             } catch (error) {
-                console.error(`❌ ${modelName} failed:`, error.message);
-                // Continue to next model
+                console.error(`❌ ${modelName} Error:`, error.message);
+                // Continue loop to next fallback
             }
         }
 
-        // ALL MODELS FAILED - Use local fallback
-        console.error('⚠️ All AI models failed, using static fallback');
-        return res.json(getFallbackQuestion(quiz.topic, difficulty));
+        // STATIC FALLBACK
+        console.warn('⚠️ All AI attempts failed. Serving static fallback.');
+        return res.json({
+            question: `What is a fundamental concept of ${quiz.topic}?`,
+            options: ["Option A", "Option B", "Option C", "Option D"],
+            correctAnswer: "Option A",
+            explanation: "The AI service is currently unavailable. Progress saved.",
+            difficulty
+        });
 
     } catch (error) {
-        console.error("Critical Quiz Error:", error);
-        return res.status(500).json({ message: "Internal server error during quiz generation" });
+        console.error("Critical Error:", error);
+        res.status(500).json({ message: "Server Error" });
     }
 };
-
 // STATIC FALLBACK DATA
-function getFallbackQuestion(topic, difficulty) {
-    return {
-        question: `Which of the following is a fundamental concept in ${topic}?`,
-        options: [
-            "Core theoretical principles",
-            "Random external variables",
-            "Geographical locations",
-            "Historical dates only"
-        ],
-        correctAnswer: "Core theoretical principles",
-        explanation: "The AI service is currently overloaded. Please continue with this general assessment question.",
-        difficulty
-    };
-}
+// function getFallbackQuestion(topic, difficulty) {
+//     return {
+//         question: `Which of the following is a fundamental concept in ${topic}?`,
+//         options: [
+//             "Core theoretical principles",
+//             "Random external variables",
+//             "Geographical locations",
+//             "Historical dates only"
+//         ],
+//         correctAnswer: "Core theoretical principles",
+//         explanation: "The AI service is currently overloaded. Please continue with this general assessment question.",
+//         difficulty
+//     };
+// }
 
 // --- 5. SUBMIT & MINT ---
 exports.submitQuiz = async (req, res) => {
