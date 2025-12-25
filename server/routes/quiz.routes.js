@@ -1,25 +1,28 @@
-// In server/routes/quiz.routes.js
 const express = require('express');
 const router = express.Router();
 
-// --- IMPORT ALL FUNCTIONS ---
+// 1. Import Controller Functions
 const { 
     createQuiz, 
     getAvailableQuizzes, 
     nextQuestion, 
     submitQuiz,
-    getQuizDetails // <-- MAKE SURE THIS IS HERE
+    getQuizDetails 
 } = require('../controllers/quiz.controller');
 
+// 2. Import Auth Middleware (Direct Function Import)
 const authMiddleware = require('../middleware/auth.middleware');
-const { checkRole } = require('../middleware/role.middleware');
+
+// 3. Import Role Middleware (Object Destructuring Import)
+const { checkRole, isAdminOrFaculty } = require('../middleware/role.middleware');
 
 // --- ROUTES ---
 
 // Faculty: Create a new quiz
 router.post(
     '/create', 
-    [authMiddleware, checkRole(['Faculty', 'SuperAdmin'])], 
+    authMiddleware, 
+    isAdminOrFaculty, // Using the pre-defined helper from your role.middleware
     createQuiz
 );
 
@@ -30,14 +33,12 @@ router.get(
     getAvailableQuizzes
 );
 
-// Student: Get Quiz Details (Start Screen)
-// --- THIS WAS LIKELY MISSING ---
+// Student: Get Quiz Details
 router.get(
     '/:quizId/details', 
     authMiddleware, 
     getQuizDetails
 );
-// ------------------------------
 
 // Student: Get next adaptive question
 router.post(
