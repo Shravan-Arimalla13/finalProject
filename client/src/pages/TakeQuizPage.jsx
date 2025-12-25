@@ -1,31 +1,40 @@
-// client/src/pages/TakeQuizPage.jsx - FIXED & MOBILE RESPONSIVE
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Alert, AlertDescription } from "@/components/ui/alert-box";
-import { Badge } from "@/components/ui/badge-item";
-import { Loader2, CheckCircle2, XCircle, Trophy, AlertTriangle } from "lucide-react";
+import { 
+    ChevronLeft, Timer, Trophy, AlertCircle, 
+    ArrowRight, CheckCircle, XCircle, Loader2 
+} from 'lucide-react';
 
 export default function TakeQuizPage() {
     const { quizId } = useParams();
     const navigate = useNavigate();
 
-    // Core State
+    // State
     const [loading, setLoading] = useState(true);
     const [quizMeta, setQuizMeta] = useState(null);
     const [questionData, setQuestionData] = useState(null);
     const [history, setHistory] = useState([]);
     const [score, setScore] = useState(0);
+    const [seconds, setSeconds] = useState(0);
 
     // Interaction State
     const [selectedOption, setSelectedOption] = useState(null);
     const [isAnswered, setIsAnswered] = useState(false);
     const [gameOver, setGameOver] = useState(false);
     const [finalResult, setFinalResult] = useState(null);
-    const [error, setError] = useState(null);
+
+    // 1. Timer Logic
+    useEffect(() => {
+        let interval = null;
+        if (!gameOver && !loading) {
+            interval = setInterval(() => {
+                setSeconds(prev => prev + 1);
+            }, 1000);
+        }
+        return () => clearInterval(interval);
+    }, [gameOver, loading]);
 
     useEffect(() => {
         const init = async () => {
@@ -34,8 +43,7 @@ export default function TakeQuizPage() {
                 setQuizMeta(res.data);
                 fetchNext([]);
             } catch (err) {
-                setError('Failed to load quiz. Please try again.');
-                setLoading(false);
+                navigate('/student/quizzes');
             }
         };
         init();
@@ -45,14 +53,11 @@ export default function TakeQuizPage() {
         setLoading(true);
         setIsAnswered(false);
         setSelectedOption(null);
-        setError(null);
-        
         try {
             const res = await api.post('/quiz/next', { quizId, history: currentHistory });
             setQuestionData(res.data);
         } catch (err) {
-            console.error("AI Error:", err);
-            setError('Failed to generate question. Please try again.');
+            console.error("AI Generation Error");
         } finally {
             setLoading(false);
         }
@@ -62,7 +67,7 @@ export default function TakeQuizPage() {
         if (isAnswered) return;
         setSelectedOption(option);
         setIsAnswered(true);
-        if (option === questionData.correctAnswer) setScore((s) => s + 1);
+        if (option === questionData.correctAnswer) setScore(s => s + 1);
     };
 
     const handleNext = async () => {
@@ -76,227 +81,185 @@ export default function TakeQuizPage() {
                 const res = await api.post('/quiz/submit', { quizId, score: isCorrect ? score + 1 : score });
                 setFinalResult(res.data);
                 setGameOver(true);
-            } catch (err) {
-                setError("Submission failed. Please contact support.");
-            } finally {
-                setLoading(false);
-            }
+            } catch (err) { console.error(err); }
         } else {
             fetchNext(newHistory);
         }
     };
 
-    const diffBadge = {
-        Easy: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
-        Medium: "bg-sky-500/10 text-sky-600 border-sky-500/20",
-        Hard: "bg-rose-500/10 text-rose-600 border-rose-500/20"
-    };
+    const formatTime = (s) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
 
-    if (gameOver) return <GameOverScreen result={finalResult} navigate={navigate} />;
+    if (gameOver) return <GameOverView result={finalResult} time={formatTime(seconds)} navigate={navigate} />;
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-950 dark:to-slate-900 p-4 md:p-8">
+        <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0F172A] p-4 md:p-8">
             <div className="max-w-4xl mx-auto">
-                {/* Header */}
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-                    <div>
-                        <h1 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-slate-100">
-                            {quizMeta?.topic || 'Loading Quiz...'}
-                        </h1>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 flex items-center gap-2 mt-1">
-                            <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
-                            AI-Powered Assessment
+                {/* Custom Navigation Header */}
+                <div className="flex items-center justify-between mb-8">
+                    <button 
+                        onClick={() => navigate('/student/quizzes')}
+                        className="flex items-center text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors"
+                    >
+                        <ChevronLeft className="w-5 h-5 mr-1" />
+                        <span className="text-sm font-semibold">Exit Session</span>
+                    </button>
+                    
+                    <div className="flex items-center gap-4 bg-white dark:bg-slate-800 px-4 py-2 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                        <div className="flex items-center text-indigo-600 dark:text-indigo-400 font-mono font-bold">
+                            <Timer className="w-4 h-4 mr-2" />
+                            {formatTime(seconds)}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Progress Tracking */}
+                <div className="mb-10">
+                    <div className="flex justify-between items-end mb-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                            Assessment Progress
+                        </p>
+                        <p className="text-sm font-bold text-slate-600 dark:text-slate-300">
+                            {history.length + 1} <span className="text-slate-400">/ {quizMeta?.totalQuestions || 10}</span>
                         </p>
                     </div>
-                    <Button 
-                        variant="ghost" 
-                        onClick={() => navigate('/student/quizzes')}
-                        className="text-sm"
-                    >
-                        Cancel Quiz
-                    </Button>
-                </div>
-
-                {/* Progress Bar */}
-                <div className="mb-6">
-                    <div className="flex justify-between items-center mb-3">
-                        <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-                            Question {history.length + 1} / {quizMeta?.totalQuestions || '--'}
-                        </span>
-                        {!loading && questionData && (
-                            <Badge className={`text-xs ${diffBadge[questionData.difficulty]}`}>
-                                {questionData.difficulty}
-                            </Badge>
-                        )}
+                    <div className="h-2 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                        <motion.div 
+                            className="h-full bg-indigo-500"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${((history.length + 1) / (quizMeta?.totalQuestions || 10)) * 100}%` }}
+                        />
                     </div>
-                    <Progress 
-                        value={((history.length + 1) / (quizMeta?.totalQuestions || 1)) * 100} 
-                        className="h-2"
-                    />
                 </div>
 
-                {/* Error Alert */}
-                {error && (
-                    <Alert variant="destructive" className="mb-6">
-                        <AlertTriangle className="h-4 w-4" />
-                        <AlertDescription>{error}</AlertDescription>
-                        <Button 
-                            onClick={() => fetchNext(history)} 
-                            variant="outline" 
-                            size="sm"
-                            className="mt-2"
+                <AnimatePresence mode="wait">
+                    {loading ? (
+                        <SkeletonLoader key="loader" />
+                    ) : (
+                        <motion.div
+                            key={questionData?.question}
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -20 }}
+                            className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl shadow-indigo-500/5 border border-slate-100 dark:border-slate-800 overflow-hidden"
                         >
-                            Retry
-                        </Button>
-                    </Alert>
-                )}
-
-                {/* Main Quiz Card */}
-                <Card className="shadow-xl border-slate-200 dark:border-slate-800">
-                    <CardContent className="p-6 md:p-10">
-                        {loading ? (
-                            <div className="py-20 flex flex-col items-center justify-center">
-                                <Loader2 className="w-12 h-12 text-indigo-500 animate-spin mb-4" />
-                                <p className="text-slate-500 dark:text-slate-400 animate-pulse italic">
-                                    AI is generating your next question...
-                                </p>
-                            </div>
-                        ) : questionData ? (
-                            <>
-                                <h2 className="text-lg md:text-xl font-semibold leading-relaxed mb-8 text-slate-900 dark:text-slate-100">
-                                    {questionData.question}
+                            <div className="p-8 md:p-12">
+                                <div className="flex items-center gap-2 mb-6">
+                                    <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-md border ${
+                                        questionData?.difficulty === 'Hard' ? 'border-rose-500 text-rose-500' : 'border-emerald-500 text-emerald-500'
+                                    }`}>
+                                        {questionData?.difficulty}
+                                    </span>
+                                </div>
+                                
+                                <h2 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-white leading-tight mb-10">
+                                    {questionData?.question}
                                 </h2>
 
-                                <div className="grid gap-3">
-                                    {questionData.options.map((opt, i) => {
-                                        const isCorrect = opt === questionData.correctAnswer;
-                                        const isSelected = opt === selectedOption;
-                                        
-                                        let stateStyles = "border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50";
-                                        
-                                        if (isAnswered) {
-                                            if (isCorrect) {
-                                                stateStyles = "bg-green-50 dark:bg-green-950/20 border-green-500 text-green-700 dark:text-green-400";
-                                            } else if (isSelected) {
-                                                stateStyles = "bg-red-50 dark:bg-red-950/20 border-red-500 text-red-700 dark:text-red-400";
-                                            } else {
-                                                stateStyles = "opacity-40 border-slate-200 dark:border-slate-700";
-                                            }
-                                        }
+                                <div className="grid gap-4">
+                                    {questionData?.options.map((option, i) => {
+                                        const isCorrect = option === questionData.correctAnswer;
+                                        const isSelected = option === selectedOption;
+                                        const showResult = isAnswered;
 
                                         return (
                                             <button
                                                 key={i}
-                                                onClick={() => handleAnswer(opt)}
                                                 disabled={isAnswered}
-                                                className={`group relative flex items-center p-4 md:p-5 rounded-xl border-2 transition-all text-left ${stateStyles} ${!isAnswered ? 'hover:scale-[1.02] active:scale-[0.98]' : 'cursor-default'}`}
+                                                onClick={() => handleAnswer(option)}
+                                                className={`group relative flex items-center p-5 rounded-2xl border-2 transition-all duration-200 text-left ${
+                                                    showResult 
+                                                        ? isCorrect 
+                                                            ? "bg-emerald-50 border-emerald-500 text-emerald-700" 
+                                                            : isSelected 
+                                                                ? "bg-rose-50 border-rose-500 text-rose-700" 
+                                                                : "opacity-40 border-slate-100"
+                                                        : "bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 hover:border-indigo-500 hover:shadow-lg hover:shadow-indigo-500/10"
+                                                }`}
                                             >
-                                                <span className={`w-8 h-8 rounded-lg flex items-center justify-center mr-4 text-xs font-bold transition-colors ${isSelected ? 'bg-indigo-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'}`}>
+                                                <span className={`w-10 h-10 rounded-xl flex items-center justify-center mr-4 text-sm font-bold transition-colors ${
+                                                    isSelected ? "bg-indigo-500 text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-500"
+                                                }`}>
                                                     {String.fromCharCode(65 + i)}
                                                 </span>
-                                                <span className="flex-grow font-medium text-sm md:text-base">
-                                                    {opt}
-                                                </span>
-                                                {isAnswered && isCorrect && (
-                                                    <CheckCircle2 className="h-5 w-5 text-green-600 ml-2" />
-                                                )}
-                                                {isAnswered && isSelected && !isCorrect && (
-                                                    <XCircle className="h-5 w-5 text-red-600 ml-2" />
-                                                )}
+                                                <span className="flex-grow font-semibold">{option}</span>
+                                                {showResult && isCorrect && <CheckCircle className="w-6 h-6 text-emerald-500" />}
+                                                {showResult && isSelected && !isCorrect && <XCircle className="w-6 h-6 text-rose-500" />}
                                             </button>
                                         );
                                     })}
                                 </div>
 
-                                {/* Explanation */}
                                 {isAnswered && (
-                                    <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-800 animate-in fade-in slide-in-from-top-2 duration-300">
-                                        <div className="bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900 rounded-xl p-5">
-                                            <p className="text-indigo-600 dark:text-indigo-400 text-xs font-bold uppercase tracking-wider mb-2">
-                                                Learning Insight
-                                            </p>
-                                            <p className="text-slate-700 dark:text-slate-300 text-sm leading-relaxed">
-                                                {questionData.explanation}
-                                            </p>
+                                    <motion.div 
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        className="mt-10 pt-8 border-t border-slate-100 dark:border-slate-800"
+                                    >
+                                        <div className="bg-indigo-50 dark:bg-indigo-950/30 p-6 rounded-2xl mb-6">
+                                            <p className="text-indigo-600 dark:text-indigo-400 text-xs font-black uppercase tracking-widest mb-2">Academic Insight</p>
+                                            <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed">{questionData.explanation}</p>
                                         </div>
-                                        <Button 
+                                        <button 
                                             onClick={handleNext}
-                                            className="w-full mt-6 h-12 text-base font-semibold"
+                                            className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-5 rounded-2xl font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2 group"
                                         >
-                                            Next Question →
-                                        </Button>
-                                    </div>
+                                            Next Question
+                                            <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                                        </button>
+                                    </motion.div>
                                 )}
-                            </>
-                        ) : (
-                            <div className="text-center py-12">
-                                <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
-                                <p className="text-slate-600 dark:text-slate-400">
-                                    Unable to load question
-                                </p>
                             </div>
-                        )}
-                    </CardContent>
-                </Card>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </div>
         </div>
     );
 }
 
-function GameOverScreen({ result, navigate }) {
-    const passed = result?.passed;
-    const score = result?.score || 0;
-    
+function SkeletonLoader() {
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-4">
-            <Card className="max-w-md w-full shadow-2xl animate-in zoom-in duration-300">
-                <CardContent className="pt-10 pb-10 text-center">
-                    <div className={`mx-auto p-4 rounded-full w-fit mb-6 ${passed ? 'bg-green-100 dark:bg-green-900/30' : 'bg-amber-100 dark:bg-amber-900/30'}`}>
-                        {passed ? (
-                            <Trophy className="h-16 w-16 text-green-600 dark:text-green-400" />
-                        ) : (
-                            <AlertTriangle className="h-16 w-16 text-amber-600 dark:text-amber-400" />
-                        )}
-                    </div>
-                    
-                    <h2 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-slate-100 mb-2">
-                        {passed ? 'Quiz Passed! 🎉' : 'Keep Learning!'}
-                    </h2>
-                    
-                    <p className="text-slate-600 dark:text-slate-400 mb-8 text-sm md:text-base">
-                        {passed 
-                            ? 'Your certificate has been issued to your wallet'
-                            : 'You can retake this quiz anytime to improve'
-                        }
-                    </p>
-                    
-                    <div className="bg-slate-100 dark:bg-slate-800 rounded-2xl p-6 mb-8">
-                        <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                            Final Score
-                        </p>
-                        <p className="text-5xl font-bold text-slate-900 dark:text-slate-100">
-                            {score?.toFixed(1)}%
-                        </p>
-                    </div>
+        <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 md:p-12 shadow-sm border border-slate-100 dark:border-slate-800 animate-pulse">
+            <div className="h-4 w-20 bg-slate-200 dark:bg-slate-800 rounded-md mb-8" />
+            <div className="space-y-4 mb-12">
+                <div className="h-8 w-full bg-slate-200 dark:bg-slate-800 rounded-xl" />
+                <div className="h-8 w-3/4 bg-slate-200 dark:bg-slate-800 rounded-xl" />
+            </div>
+            <div className="grid gap-4">
+                {[1, 2, 3, 4].map(i => (
+                    <div key={i} className="h-16 w-full bg-slate-100 dark:bg-slate-800 rounded-2xl" />
+                ))}
+            </div>
+        </div>
+    );
+}
 
-                    {result?.certificateId && (
-                        <Button 
-                            onClick={() => navigate(`/verify/${result.certificateId}`)}
-                            variant="outline"
-                            className="w-full mb-3"
-                        >
-                            View Certificate
-                        </Button>
-                    )}
-                    
-                    <Button 
-                        onClick={() => navigate('/student/quizzes')}
-                        className="w-full"
-                    >
-                        Back to Dashboard
-                    </Button>
-                </CardContent>
-            </Card>
+function GameOverView({ result, time, navigate }) {
+    return (
+        <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0F172A] flex items-center justify-center p-6">
+            <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="max-w-md w-full bg-white dark:bg-slate-900 p-10 rounded-[3rem] shadow-2xl text-center border border-slate-100 dark:border-slate-800"
+            >
+                <div className="w-20 h-20 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <Trophy className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
+                </div>
+                <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">Assessment Over</h2>
+                <p className="text-slate-500 mb-8">Completed in {time}</p>
+                
+                <div className="bg-slate-50 dark:bg-slate-800 rounded-3xl p-6 mb-8">
+                    <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Total Score</p>
+                    <p className="text-5xl font-black text-slate-900 dark:text-white">{result?.score?.toFixed(1)}%</p>
+                </div>
+
+                <button 
+                    onClick={() => navigate('/student/quizzes')}
+                    className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-indigo-600/20 hover:bg-indigo-700 transition-all"
+                >
+                    Return to Dashboard
+                </button>
+            </motion.div>
         </div>
     );
 }
