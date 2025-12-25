@@ -8,14 +8,15 @@ const crypto = require('crypto');
 const { mintNFT } = require('../utils/blockchain');
 const { sendCertificateIssued } = require('../utils/mailer');
 
-// --- INITIALIZATION FIX ---
+// Use the standard GoogleGenerativeAI initialization
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Use explicit model paths to avoid 404 errors on v1beta
-const MODEL_FALLBACKS = [
-    "models/gemini-1.5-flash", 
-    "models/gemini-1.5-pro",
-    "models/gemini-pro"
+// FIXED MODEL LIST: Using standard names without "-latest"
+const MODEL_PRIORITY = [
+    "gemini-2.5-flash-lite", // Most generous free tier limits in 2025
+    "gemini-2.5-flash",      // Balanced speed/intelligence
+    "gemini-2.0-flash",      // Legacy stable model
+    "gemini-3-flash-preview" // Latest multimodal model
 ];
 
 const cleanJSON = (text) => {
@@ -123,7 +124,6 @@ exports.getQuizDetails = async (req, res) => {
     }
 };
 
-// --- 4. NEXT QUESTION (THE FINAL FIX) ---
 exports.nextQuestion = async (req, res) => {
     const { quizId, history } = req.body;
 
@@ -131,67 +131,53 @@ exports.nextQuestion = async (req, res) => {
         const quiz = await Quiz.findById(quizId);
         if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
+        // Logic for difficulty and prompt remains the same...
         const currentQIndex = history ? history.length : 0;
-        let difficulty = 'Medium';
-        
-        // Adaptive logic
-        if (currentQIndex < 3) difficulty = 'Easy';
-        else if (history.slice(-3).filter(h => h.isCorrect).length >= 2) difficulty = 'Hard';
-
-        const previousQuestionsText = history ? history.map(h => h.questionText).slice(-5).join(" | ") : "None";
+        let difficulty = (currentQIndex < 3) ? 'Easy' : 'Medium'; 
+        const previousQuestionsText = history ? history.map(h => h.questionText).slice(-5).join(" | ") : "";
 
         const prompt = `Generate ONE multiple-choice question about "${quiz.topic}".
 Difficulty: ${difficulty}.
-Return ONLY valid JSON:
+Format: JSON only.
 {
-  "question": "Question text?",
+  "question": "...",
   "options": ["A", "B", "C", "D"],
-  "correctAnswer": "Exact text of correct option",
-  "explanation": "Why this is correct"
+  "correctAnswer": "...",
+  "explanation": "..."
 }`;
 
-        // Attempting models with explicit 'models/' prefix
-        for (const modelName of MODEL_FALLBACKS) {
+        // TRY MODELS ONE BY ONE
+        for (const modelName of MODEL_PRIORITY) {
             try {
-                console.log(`🤖 Attempting: ${modelName}`);
+                console.log(`🤖 Requesting: ${modelName}`);
                 
+                // Get the model instance
                 const model = genAI.getGenerativeModel({ model: modelName });
                 
-                // Using the most basic calling structure for maximum compatibility
+                // Call generateContent - let the SDK handle the endpoint (it usually picks v1beta or v1 based on model)
                 const result = await model.generateContent(prompt);
                 const response = await result.response;
                 const text = response.text();
                 
-                if (!text) throw new Error("Empty response");
-
-                const cleaned = cleanJSON(text);
-                const questionData = JSON.parse(cleaned);
-                
-                // Final validation of AI output
-                if (questionData.question && Array.isArray(questionData.options)) {
+                if (text) {
+                    const questionData = JSON.parse(cleanJSON(text));
                     questionData.difficulty = difficulty;
                     console.log(`✅ Success with ${modelName}`);
                     return res.json(questionData);
                 }
             } catch (error) {
-                console.error(`❌ ${modelName} Error:`, error.message);
-                // Continue loop to next fallback
+                console.error(`❌ ${modelName} failed: ${error.message}`);
+                // Continue to the next model if this one returns 404
             }
         }
 
         // STATIC FALLBACK
-        console.warn('⚠️ All AI attempts failed. Serving static fallback.');
-        return res.json({
-            question: `What is a fundamental concept of ${quiz.topic}?`,
-            options: ["Option A", "Option B", "Option C", "Option D"],
-            correctAnswer: "Option A",
-            explanation: "The AI service is currently unavailable. Progress saved.",
-            difficulty
-        });
+        console.error("⚠️ All AI models failed to respond. Serving static fallback.");
+        return res.json(getFallbackQuestion(quiz.topic, difficulty));
 
     } catch (error) {
         console.error("Critical Error:", error);
-        res.status(500).json({ message: "Server Error" });
+        res.status(500).json({ message: "Internal Server Error" });
     }
 };
 // STATIC FALLBACK DATA
