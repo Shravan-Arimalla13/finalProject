@@ -30,7 +30,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     // Force pre-bundling of problematic dependencies
-    include: ['siwe', 'buffer', 'ethers','lucide-react', 'framer-motion'],
+    include: ['siwe', 'buffer', 'ethers'],
     esbuildOptions: {
         // Node.js global to browser globalThis
         define: {
