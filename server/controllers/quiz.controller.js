@@ -183,10 +183,27 @@ exports.nextQuestion = async (req, res) => {
             ? history.map(h => h.questionText).slice(-3).join(" | ") 
             : "None";
 
-        const prompt = `Topic: ${quiz.topic}. Generate ONE ${difficulty} MCQ. 
-        Context: ${quiz.description}. Avoid repeating concepts like: ${previousQuestionsText}.
-        Return ONLY JSON: {"question": "...", "options": ["A", "B", "C", "D"], "correctAnswer": "...", "explanation": "..."}`;
+        // Inside exports.nextQuestion in quiz.controller.js
 
+const prompt = `
+SYSTEM: You are a strict academic examiner.
+SUBJECT: ${quiz.topic}
+CONTEXT: ${quiz.description}
+DIFFICULTY: ${difficulty}
+
+TASK: Generate ONE unique multiple-choice question strictly about ${quiz.topic}. 
+- Do NOT mention JavaScript unless the topic is JavaScript.
+- Do NOT repeat these previous concepts: ${previousQuestionsText}.
+- Ensure the question is relevant to the department: ${quiz.department}.
+
+OUTPUT FORMAT (MANDATORY JSON):
+{
+  "question": "Insert question text here",
+  "options": ["Option A", "Option B", "Option C", "Option D"],
+  "correctAnswer": "Exact text of correct option",
+  "explanation": "Why this is correct"
+}
+`.trim();
         const text = await generateQuestionWithRetry(prompt);
         const questionData = JSON.parse(cleanJSON(text));
         
