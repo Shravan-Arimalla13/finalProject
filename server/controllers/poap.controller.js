@@ -6,7 +6,6 @@ const User = require('../models/user.model');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const { getAddress } = require('ethers/address');
-const { getCurrentIST, calculateAttendanceScoreIST } = require('../utils/timezone');
 
 
 // ============================================
@@ -17,72 +16,153 @@ const { getCurrentIST, calculateAttendanceScoreIST } = require('../utils/timezon
  * Generate QR code and check-in link for an event
  * POST /api/poap/event/:eventId/qr
  */
-// server/controllers/poap.controller.js
-
 exports.generateEventQR = async (req, res) => {
     try {
         const { eventId } = req.params;
         const event = await Event.findById(eventId);
         
-        if (!event) return res.status(404).json({ message: 'Event not found' });
-
+        if (!event) {
+            return res.status(404).json({ message: 'Event not found' });
+        }
+        
+        // Generate unique check-in token
         const checkInToken = crypto.randomBytes(32).toString('hex');
         
-        // DYNAMIC EXPIRY: Set token to expire exactly 10 minutes from NOW
-        const expiryTime = new Date(Date.now() + 10 * 60 * 1000);
-        
+        // Store token in event (expires 24 hours after event date)
         event.checkInToken = checkInToken;
-        event.checkInTokenExpiry = expiryTime;
+        event.checkInTokenExpiry = new Date(
+            new Date(event.date).getTime() + 24 * 60 * 60 * 1000
+        );
         await event.save();
         
+        // Build check-in URL
         const baseUrl = process.env.FRONTEND_URL || "https://final-project-wheat-mu-84.vercel.app";
         const checkInUrl = `${baseUrl}/poap-checkin?token=${checkInToken}&eventId=${eventId}`;
         
-        const qrCode = await QRCode.toDataURL(checkInUrl, { errorCorrectionLevel: 'H' });
+        // Generate QR code
+        const qrCode = await QRCode.toDataURL(checkInUrl, {
+            errorCorrectionLevel: 'H',
+            type: 'image/png',
+            width: 400,
+            margin: 2,
+            color: {
+                dark: '#000000',
+                light: '#FFFFFF'
+            }
+        });
         
-        console.log(`✅ Dynamic QR Generated for: ${event.name}`);
-        console.log(`🕒 Valid until: ${expiryTime.toLocaleTimeString('en-IN')}`);
+        console.log(`✅ QR code generated for event: ${event.name}`);
         
-        res.json({ qrCode, checkInUrl, expiresAt: expiryTime });
+        res.json({ 
+            qrCode: qrCode, 
+            checkInUrl: checkInUrl,
+            expiresAt: event.checkInTokenExpiry
+        });
+        
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        console.error('QR Generation Error:', error);
+        res.status(500).json({ message: 'QR generation failed: ' + error.message });
     }
 };
 
+// ============================================
+// 2. CLAIM POAP (Student Check-In)
+// ============================================
+
+
+
+/**
+ * Claim POAP by checking in with GPS verification
+ * POST /api/poap/claim
+ */
 exports.claimPOAP = async (req, res) => {
     try {
         const { token, eventId, gps } = req.body;
-        const event = await Event.findById(eventId);
-        
-        // UNIFIED IST LOGGING
-        const now = getCurrentIST();
-        console.log(`🕒 IST Check-In Attempt: ${now.toLocaleString('en-IN')}`);
-        console.log(`   > Event: ${event?.name} | Start: ${event?.startTime}`);
+        const studentId = req.user.id;
 
-        // VALIDATE TOKEN EXPIRY (The 10-minute window)
-        if (new Date() > event.checkInTokenExpiry) {
-            return res.status(400).json({ message: "This QR code has expired (10 min limit)." });
+        if (!token || !eventId || !gps) {
+            return res.status(400).json({ 
+                message: 'Missing required fields: token, eventId, gps' 
+            });
         }
+
+        const event = await Event.findById(eventId);
+        if (!event) return res.status(404).json({ message: 'Event not found' });
 
         if (event.checkInToken !== token) {
-            return res.status(400).json({ message: "Invalid QR code." });
+            return res.status(400).json({ 
+                message: 'Invalid or expired QR code.' 
+            });
         }
 
-        // Location Check
-        const eventLocation = {
-            latitude: event.location?.latitude || event.location?.coordinates?.[1],
-            longitude: event.location?.longitude || event.location?.coordinates?.[0]
-        };
+        // --- CRITICAL FIX: TIMEZONE & TIME VALIDATION ---
+        const now = new Date();
+        const timeCheck = poapService.validateCheckInTime(
+            event.date, 
+            event.startTime, 
+            event.endTime
+        );
+        
+        // Detailed server logging to debug "Too Early" issues
+        console.log(`🕒 Time Check: Now=${now.toLocaleTimeString()}, EventStart=${event.startTime}`);
+        
+        if (!timeCheck.isValid) {
+            console.warn(`🚫 Check-in rejected: ${timeCheck.message}`);
+            return res.status(400).json({ message: timeCheck.message });
+        }
+        
+        const student = await User.findById(studentId);
+        if (!student || !student.walletAddress) {
+            return res.status(400).json({ message: 'Wallet not connected' });
+        }
 
-        // Score Calculation with Grace Period
-        const attendanceScore = poapService.calculateAttendanceScoreIST(event.date, event.startTime, now);
+        const studentWallet = getAddress(student.walletAddress.toLowerCase());
+        
+        // Calculate attendance score based on server-side 'now'
+        const attendanceScore = poapService.calculateAttendanceScore(
+            event.date,
+            event.startTime,
+            now
+        );
+        
+        // Mint POAP on blockchain
+        const mintResult = await poapService.mintPOAP(
+            studentWallet,
+            { eventId: event._id, eventName: event.name, eventDate: event.date },
+            gps,
+            event.location
+        );
+        
+        const eventHash = poapService.generateEventHash(event._id, event.name, event.date);
 
-        const mintResult = await poapService.mintPOAP(req.user.walletAddress, event, gps, eventLocation);
-
-        // ... Save POAP logic ...
-        res.status(201).json({ success: true, score: attendanceScore });
+        const newPOAP = await POAP.create({
+            tokenId: mintResult.tokenId,
+            transactionHash: mintResult.transactionHash,
+            eventHash: eventHash,
+            eventId: event._id,
+            eventName: event.name,
+            eventDate: event.date,
+            studentWallet: studentWallet.toLowerCase(),
+            studentEmail: student.email,
+            studentName: student.name,
+            checkInLocation: {
+                latitude: gps.latitude,
+                longitude: gps.longitude,
+                accuracy: gps.accuracy || null
+            },
+            attendanceScore: attendanceScore,
+            issuer: req.user.id
+        });
+        
+        res.status(201).json({ 
+            success: true, 
+            message: 'POAP claimed successfully!',
+            poap: newPOAP
+        });
+        
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        console.error('POAP Claim Error:', error);
+        res.status(500).json({ message: 'POAP claim failed: ' + error.message });
     }
 };
 

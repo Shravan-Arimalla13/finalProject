@@ -8,13 +8,12 @@ import { useAuth } from '../context/AuthContext';
 import { TableSkeleton } from '../components/TableSkeleton'; 
 import { Input } from "@/components/ui/input";
 
-// --- SHADCN IMPORTS (Restored to original paths) ---
+// --- SHADCN IMPORTS ---
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge-item"; // Restored original path
 import {
   Dialog,
   DialogContent,
@@ -50,7 +49,7 @@ function EventManagementPage() {
 
     // QR Modal State
     const [isQROpen, setIsQROpen] = useState(false);
-    const [qrData, setQrData] = useState({ img: null, url: '', expiresAt: null });
+    const [qrData, setQrData] = useState({ img: null, url: '' });
 
     // --- CREATE FORM STATE ---
     const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -150,10 +149,10 @@ function EventManagementPage() {
                     }
                 }));
                 setIsGpsLoading(false);
-                alert("Location Captured.");
+                alert("Location Captured: GPS Venue coordinates set.");
             },
             () => {
-                alert("Location Capture Failed.");
+                alert("Location Capture Failed. Please grant browser permissions.");
                 setIsGpsLoading(false);
             },
             { enableHighAccuracy: true, timeout: 5000 }
@@ -167,10 +166,12 @@ function EventManagementPage() {
 
     const handleCreateEvent = async () => {
         if (isCreating) return; 
+
         if (!formData.name || !formData.date || !formData.startTime || !formData.endTime) {
             alert("Please fill in Event Name, Date, Start Time, and End Time.");
             return;
         }
+
         setIsCreating(true); 
 
         const finalDept = formData.headerDepartment === 'OTHER' ? customDeptInput : formData.headerDepartment;
@@ -196,11 +197,14 @@ function EventManagementPage() {
                     eventDuration: formData.eventDuration
                 }
             });
+            
             setIsDialogOpen(false); 
             fetchEvents(); 
+            
             setFormData(prev => ({ 
                 ...prev, name: '', date: '', description: '', eventType: '', eventDuration: '', isPublic: false
             }));
+            
         } catch (err) {
             alert(err.response?.data?.message || "Failed to create event");
         } finally {
@@ -208,16 +212,36 @@ function EventManagementPage() {
         }
     };
 
+    // --- NEW HANDLER FOR ISSUANCE DROPDOWN ---
     const handleIssuanceChoice = (event, type) => {
-        if (!window.confirm(`Confirm issuance?`)) return;
+        // Prevent issue if event is NOT complete (Optional: Re-enable later if time lock is needed)
+        /* if (!event.isComplete) {
+            alert(`Issuance is locked. Event ends at ${event.endTime}.`);
+            return;
+        }
+        */
+        
+        // This is a proxy for the actual issuance logic that runs on the server
+        const confirmMessage = 
+            type === 'attended' 
+                ? `Issue certificates ONLY to participants who successfully checked in via POAP?`
+                : `Issue certificates to ALL ${event.participants.length} registered students?`;
+
+        if (!window.confirm(confirmMessage)) return;
 
         setIssueLoading(event._id);
         setIssueMessage({ id: null, text: null });
         setIssueError({ id: null, text: null });
 
+        // API call now includes the issueType as a query parameter
         api.post(`/certificates/issue/event/${event._id}?issueType=${type}`) 
            .then(response => {
-                setIssueMessage({ id: event._id, text: response.data.message });
+                // Check if any errors were returned in the bulk process
+                const responseMessage = response.data.errors?.length > 0 
+                    ? `${response.data.message} (${response.data.errors.length} failed).`
+                    : response.data.message;
+
+                setIssueMessage({ id: event._id, text: responseMessage });
                 fetchEvents();
            })
            .catch(err => {
@@ -227,10 +251,19 @@ function EventManagementPage() {
                 setIssueLoading(null);
            });
     };
+    // ----------------------------------------
 
     const handleIssueCertificates = (event) => {
+        // This function handles the simple "Issue Remaining" button for already issued events
         if (!window.confirm(`Issue certificates to remaining participants?`)) return;
+
+        // Note: For 'Issue Remaining', we just call the default bulk endpoint without query params
+        // The backend logic handles skipping existing certificates.
+
         setIssueLoading(event._id);
+        setIssueMessage({ id: null, text: null });
+        setIssueError({ id: null, text: null });
+        
         api.post(`/certificates/issue/event/${event._id}`)
            .then(response => {
                 setIssueMessage({ id: event._id, text: response.data.message });
@@ -244,17 +277,16 @@ function EventManagementPage() {
            });
     };
 
+    const handleViewParticipants = (event) => setSelectedEvent(event);
+    const handleViewAttendance = (event) => setAttendanceEvent(event);
+    
     const handleGenerateQR = async (event) => {
         try {
-            const res = await api.post(`/poap/event/${event._id}/qr`);
-            setQrData({ 
-                img: res.data.qrCode, 
-                url: res.data.checkInUrl,
-                expiresAt: res.data.expiresAt 
-            });
+            const res = await api.get(`/poap/event/${event._id}/qr`);
+            setQrData({ img: res.data.qrCode, url: res.data.checkInUrl });
             setIsQROpen(true); 
         } catch (e) {
-            alert("Failed to generate QR code.");
+            alert("Failed to generate QR code. Ensure event is saved and you are logged in.");
         }
     };
 
@@ -263,7 +295,7 @@ function EventManagementPage() {
         navigator.clipboard.writeText(publicUrl);
         alert('Copied!');
     };
-    
+
     const filteredEvents = events.filter(event => event.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
     return (
@@ -283,81 +315,253 @@ function EventManagementPage() {
                             </DialogHeader>
                             
                             <div className="grid gap-6 py-4">
+                                
+                                {/* 1. EVENT NAME AND DESCRIPTION */}
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2 text-foreground">
+                                    <div className="space-y-2">
                                         <Label>Event Name</Label>
                                         <Input value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} />
                                     </div>
-                                    <div className="space-y-2 text-foreground">
+                                    <div className="space-y-2">
                                         <Label>Event Date</Label>
                                         <Input type="date" min={today} value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})} />
                                     </div>
                                 </div>
-                                <div className="space-y-2 text-foreground">
+                                <div className="space-y-2">
                                     <Label>Description</Label>
                                     <Textarea value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} />
                                 </div>
 
+                                <hr className="border-border my-2" />
+                                <h3 className="font-semibold text-foreground">Time & Location Services</h3>
+                                
+                                {/* 2. TIME AND LOCATION SETUP (NEW) */}
                                 <Card className="p-4 bg-muted/20 border-l-4 border-l-indigo-500">
                                     <CardContent className="p-0 space-y-4">
+                                        {/* TIME CONSTRAINTS */}
                                         <div className="grid grid-cols-2 gap-4">
-                                            <div className="space-y-2 text-foreground">
+                                            <div className="space-y-2">
                                                 <Label><Clock className="h-4 w-4 inline mr-1" /> Start Time</Label>
                                                 <Input type="time" value={formData.startTime} onChange={(e) => setFormData({...formData, startTime: e.target.value})} />
                                             </div>
-                                            <div className="space-y-2 text-foreground">
+                                            <div className="space-y-2">
                                                 <Label>End Time</Label>
                                                 <Input type="time" value={formData.endTime} onChange={(e) => setFormData({...formData, endTime: e.target.value})} />
                                             </div>
                                         </div>
-                                        <div className="space-y-2 border-t pt-3 text-foreground">
+
+                                        {/* LOCATION SETUP */}
+                                        <div className="space-y-2 border-t pt-3">
                                             <Label><MapPin className="h-4 w-4 inline mr-1" /> Physical Check-In Venue</Label>
+                                            
                                             <div className="flex gap-2 items-center">
                                                 <Input 
-                                                    placeholder="Venue Address" 
+                                                    placeholder="Venue Address (e.g., Seminar Hall A)" 
                                                     value={formData.location.address}
                                                     onChange={(e) => handleLocationChange('address', e.target.value)}
                                                     className="flex-1"
                                                 />
-                                                <Button type="button" onClick={setLocationToCurrent} disabled={isGpsLoading} variant="secondary">
-                                                    {isGpsLoading ? <Loader2 className="h-4 w-4 animate-spin"/> : <MapPin className='h-4 w-4'/>}
+                                                <Button type="button" onClick={setLocationToCurrent} disabled={isGpsLoading} variant="secondary" className="shrink-0">
+                                                    {isGpsLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1"/> : <MapPin className='h-4 w-4 mr-1'/>}
+                                                    Capture GPS
                                                 </Button>
                                             </div>
+
+                                            {/* GPS STATUS FEEDBACK */}
+                                            {formData.location.latitude && (
+                                                <p className="text-xs text-green-600 flex items-center gap-1">
+                                                    <CheckCircle2 className='h-3 w-3'/> GPS Venue Set: Lat/Lng {formData.location.latitude.toFixed(4)}
+                                                </p>
+                                            )}
+                                            {!formData.location.latitude && (
+                                                <p className="text-xs text-amber-600">
+                                                    (Optional) Capture GPS coordinates for fraud-proof attendance.
+                                                </p>
+                                            )}
                                         </div>
                                     </CardContent>
                                 </Card>
                                 
-                                <div className="space-y-2 text-foreground">
-                                    <Label className="flex items-center gap-2"><PenTool className="h-4 w-4" /> Digital Signature</Label>
-                                    <div className="relative rounded-md border-2 border-dashed border-input bg-white h-40">
-                                        <SignatureCanvas ref={sigPadRef} penColor="black" canvasProps={{ className: 'w-full h-full' }} />
+                                <hr className="border-border my-2" />
+                                <h3 className="font-semibold text-foreground">Certificate Details</h3>
+
+                                {/* 3. CERTIFICATE AND BRANDING (Existing) */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>Department Header</Label>
+                                        <select 
+                                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                            value={formData.headerDepartment}
+                                            onChange={(e) => setFormData({...formData, headerDepartment: e.target.value})}
+                                        >
+                                            <option value="DEPARTMENT OF MASTER OF COMPUTER APPLICATIONS (MCA)">Dept. of MCA</option>
+                                            <option value="DEPARTMENT OF COMPUTER SCIENCE (CS)">Dept. of CS</option>
+                                            <option value="DEPARTMENT OF ELECTRONICS & COMMUNICATION (ECE)">Dept. of ECE</option>
+                                            <option value="OTHER">-- Type Manually --</option>
+                                        </select>
+                                        {formData.headerDepartment === 'OTHER' && (
+                                            <Input placeholder="Type Department Name" value={customDeptInput} onChange={(e) => setCustomDeptInput(e.target.value)} className="mt-2" />
+                                        )}
                                     </div>
-                                    <div className="flex gap-2">
-                                        <Button size="sm" variant="outline" onClick={clearSig}>Clear Pad</Button>
-                                        <Input type="file" accept="image/png" onChange={(e) => handleImageUpload(e, setSignatureImage)} className="text-xs" />
+                                    
+                                    <div className="flex items-end pb-2">
+                                        <div className="flex items-center space-x-2 border p-2 rounded-md w-full bg-muted/20 h-10 border-input">
+                                            <input type="checkbox" id="isPublic" checked={formData.isPublic} onChange={(e) => setFormData({...formData, isPublic: e.target.checked})} className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 accent-primary" />
+                                            <Label htmlFor="isPublic" className="cursor-pointer font-medium text-foreground mb-0">Make Event Public?</Label>
+                                        </div>
                                     </div>
                                 </div>
+
+                                {/* 4. SIGNATURE AND LOGO (Existing) */}
+                                <div className="space-y-2">
+                                    <Label className="flex items-center justify-between">
+                                        <span className="flex items-center gap-2"><PenTool className="h-4 w-4" /> Digital Signature</span>
+                                    </Label>
+                                    <div className="relative rounded-md border-2 border-dashed border-input bg-white overflow-hidden h-40">
+                                        <SignatureCanvas ref={sigPadRef} penColor="black" canvasProps={{ className: 'w-full h-full cursor-crosshair relative z-10' }} />
+                                    </div>
+                                    <Input type="file" accept="image/png" onChange={(e) => handleImageUpload(e, setSignatureImage)} className="text-xs" />
+                                </div>
+
                             </div>
 
                             <Button onClick={handleCreateEvent} className="w-full" disabled={isCreating}>
-                                {isCreating ? "Creating..." : "Confirm & Create Event"}
+                                {isCreating ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating...</>) : ("Confirm & Create Event")}
                             </Button>
                         </DialogContent>
                     </Dialog>
                 </div>
 
+                {/* --- EVENT LIST TABLE --- */}
+                <Card className="shadow-lg">
+                    {/* ... (Table Header and Content) ... */}
+                    <CardHeader>
+                        <CardTitle>Existing Events</CardTitle>
+                        <div className="relative pt-4">
+                            <Input placeholder="Search events..." className="pl-10" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                            <Search className="absolute left-3 top-6 h-5 w-5 text-muted-foreground" />
+                        </div>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="rounded-md border">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Event</TableHead>
+                                        <TableHead>Date & Time</TableHead>
+                                        <TableHead>Participants</TableHead>
+                                        <TableHead>Status</TableHead>
+                                        <TableHead className="text-right">Actions</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {isLoadingData ? (
+                                        <TableSkeleton columns={5} rows={5} />
+                                    ) : filteredEvents.length === 0 ? (
+                                        <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">{searchTerm ? "No matching events." : "No events found."}</TableCell></TableRow>
+                                    ) : (
+                                        filteredEvents.map((event) => {
+                                            const isLoading = issueLoading === event._id;
+                                            
+                                            return (
+                                                <TableRow key={event._id}>
+                                                    <TableCell className="font-medium">{event.name}</TableCell>
+                                                    <TableCell>
+                                                         <div className='flex flex-col'>
+                                                            <span>{new Date(event.date).toLocaleDateString()}</span>
+                                                            <span className='text-xs text-muted-foreground'>{event.startTime} - {event.endTime}</span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell>{event.participants?.length || 0}</TableCell>
+                                                    <TableCell>
+                                                        {/* Status Column */}
+                                                        {!event.isComplete ? ( 
+                                                            <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+                                                                <Clock className='h-3 w-3 mr-1'/> Upcoming
+                                                            </span>
+                                                        ) : event.certificatesIssued ? (
+                                                            // Status: Already Issued
+                                                            <div className="flex flex-col space-y-1">
+                                                                <span className="text-xs text-green-600 font-semibold flex items-center">
+                                                                    <UserCheck className="h-4 w-4 mr-1"/> Issued
+                                                                </span>
+                                                                <Button
+                                                                    onClick={() => handleIssueCertificates(event)} 
+                                                                    variant="outline"
+                                                                    size="xs"
+                                                                    disabled={issueLoading === event._id}
+                                                                    className="text-green-600 border-green-600 hover:text-green-700 h-6 px-2 text-xs"
+                                                                >
+                                                                    {issueLoading === event._id ? 'Processing...' : 'Issue Remaining'}
+                                                                </Button>
+                                                            </div>
+                                                        ) : (
+                                                            // Status: Ready to Issue (Show Dropdown Choice)
+                                                            <DropdownMenu>
+                                                                <DropdownMenuTrigger asChild>
+                                                                    <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
+                                                                        Issue Certificates <MoreHorizontal className='h-4 w-4 ml-1'/>
+                                                                    </Button>
+                                                                </DropdownMenuTrigger>
+                                                                <DropdownMenuContent align="end">
+                                                                    <DropdownMenuLabel>Choose Issuance Target</DropdownMenuLabel>
+                                                                    
+                                                                    <DropdownMenuItem onClick={() => handleIssuanceChoice(event, 'attended')}>
+                                                                        <CheckCircle2 className="h-4 w-4 mr-2 text-green-600"/> ONLY Attended (POAP)
+                                                                    </DropdownMenuItem>
+                                                                    <DropdownMenuItem onClick={() => handleIssuanceChoice(event, 'all')}>
+                                                                        <Users className="h-4 w-4 mr-2 text-blue-600"/> ALL Registered Participants
+                                                                    </DropdownMenuItem>
+                                                                </DropdownMenuContent>
+                                                            </DropdownMenu>
+                                                        )}
+                                                        
+                                                        {issueMessage.id === event._id && <div className="text-xs text-green-600 mt-1">✅ {issueMessage.text}</div>}
+                                                        {issueError.id === event._id && <div className="text-xs text-red-600 mt-1">⚠️ {issueError.text}</div>}
+                                                    </TableCell>
+
+                                                    <TableCell className="text-right">
+                                                        <DropdownMenu>
+                                                            <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><span className="sr-only">Open menu</span><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                                                            <DropdownMenuContent align="end">
+                                                                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                                                <DropdownMenuItem onClick={() => handleViewParticipants(event)}>View Participants List</DropdownMenuItem>
+                                                                
+                                                                <DropdownMenuItem onClick={() => handleViewAttendance(event)}>
+                                                                    <MapPin className="mr-2 h-4 w-4" /> View Attendance Report
+                                                                </DropdownMenuItem>
+                                                                
+                                                                <DropdownMenuItem onClick={() => handleGenerateQR(event)}>
+                                                                    <QrCode className="mr-2 h-4 w-4" /> Show Check-In QR
+                                                                </DropdownMenuItem>
+                                                                
+                                                                <DropdownMenuItem onClick={() => copyToClipboard(event)}>Copy Public Link</DropdownMenuItem>
+                                                            </DropdownMenuContent>
+                                                        </DropdownMenu>
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* --- MODALS --- */}
+                <ParticipantsModal event={selectedEvent} onClose={() => setSelectedEvent(null)} />
+                <AttendanceModal event={attendanceEvent} onClose={() => setAttendanceEvent(null)} />
+                
                 <Dialog open={isQROpen} onOpenChange={setIsQROpen}>
-                    <DialogContent className="sm:max-w-md text-center text-foreground">
+                    <DialogContent className="sm:max-w-md text-center">
                         <DialogHeader>
                             <DialogTitle>Event Check-In QR</DialogTitle>
-                            <DialogDescription>Scan to verify attendance. Dynamic expiry active.</DialogDescription>
+                            <DialogDescription>Scan to verify attendance and mint POAP.</DialogDescription>
                         </DialogHeader>
                         <div className="flex flex-col items-center gap-4 py-4">
                             {qrData.img ? (
-                                <>
-                                    <img src={qrData.img} alt="QR Code" className="w-64 h-64 border rounded-lg p-2 bg-white shadow-sm" />
-                                    <QRTimer expiresAt={qrData.expiresAt} />
-                                </>
+                                <img src={qrData.img} alt="QR Code" className="w-64 h-64 border rounded-lg p-2 bg-white shadow-sm" />
                             ) : (
                                 <Loader2 className="h-10 w-10 animate-spin text-primary" />
                             )}
@@ -373,128 +577,13 @@ function EventManagementPage() {
                                     </Button>
                                 </div>
                             </div>
-                            <Button variant="ghost" size="sm" onClick={() => handleGenerateQR({_id: attendanceEvent?._id})}>
-                                <RefreshCcw className="h-3 w-3 mr-2" /> Regenerate if Expired
-                            </Button>
                         </div>
                     </DialogContent>
                 </Dialog>
 
-                <Card className="shadow-lg">
-                    <CardHeader>
-                        <CardTitle>Existing Events</CardTitle>
-                        <div className="relative pt-4 text-foreground">
-                            <Input placeholder="Search events..." className="pl-10" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                            <Search className="absolute left-3 top-6 h-5 w-5 text-muted-foreground" />
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="rounded-md border text-foreground">
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Event</TableHead>
-                                        <TableHead>Date & Time</TableHead>
-                                        <TableHead>Participants</TableHead>
-                                        <TableHead>Status</TableHead>
-                                        <TableHead className="text-right">Actions</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {isLoadingData ? (
-                                        <TableSkeleton columns={5} rows={5} />
-                                    ) : filteredEvents.length === 0 ? (
-                                        <TableRow><TableCell colSpan={5} className="text-center py-8">No events found.</TableCell></TableRow>
-                                    ) : (
-                                        filteredEvents.map((event) => (
-                                            <TableRow key={event._id}>
-                                                <TableCell className="font-medium">{event.name}</TableCell>
-                                                <TableCell>
-                                                     <div className='flex flex-col'>
-                                                        <span>{new Date(event.date).toLocaleDateString()}</span>
-                                                        <span className='text-xs text-muted-foreground'>{event.startTime} - {event.endTime}</span>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell>{event.participants?.length || 0}</TableCell>
-                                                <TableCell>
-                                                    {!event.isComplete ? ( 
-                                                        <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-                                                            <Clock className='h-3 w-3 mr-1'/> Upcoming
-                                                        </Badge>
-                                                    ) : event.certificatesIssued ? (
-                                                        <div className="flex flex-col space-y-1">
-                                                            <span className="text-xs text-green-600 font-semibold flex items-center">
-                                                                <UserCheck className="h-4 w-4 mr-1"/> Issued
-                                                            </span>
-                                                            <Button onClick={() => handleIssueCertificates(event)} variant="outline" size="xs" className="h-6 px-2 text-xs border-green-600 text-green-600">Issue Remaining</Button>
-                                                        </div>
-                                                    ) : (
-                                                        <DropdownMenu>
-                                                            <DropdownMenuTrigger asChild>
-                                                                <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">Issue Certificates <MoreHorizontal className='h-4 w-4 ml-1'/></Button>
-                                                            </DropdownMenuTrigger>
-                                                            <DropdownMenuContent align="end">
-                                                                <DropdownMenuItem onClick={() => handleIssuanceChoice(event, 'attended')}><CheckCircle2 className="h-4 w-4 mr-2 text-green-600"/> ONLY Attended (POAP)</DropdownMenuItem>
-                                                                <DropdownMenuItem onClick={() => handleIssuanceChoice(event, 'all')}><Users className="h-4 w-4 mr-2 text-blue-600"/> ALL Registered</DropdownMenuItem>
-                                                            </DropdownMenuContent>
-                                                        </DropdownMenu>
-                                                    )}
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    <DropdownMenu>
-                                                        <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                                                        <DropdownMenuContent align="end">
-                                                            <DropdownMenuItem onClick={() => setSelectedEvent(event)}>View Participants</DropdownMenuItem>
-                                                            <DropdownMenuItem onClick={() => setAttendanceEvent(event)}>Attendance Report</DropdownMenuItem>
-                                                            <DropdownMenuItem onClick={() => handleGenerateQR(event)}>Show Check-In QR</DropdownMenuItem>
-                                                            <DropdownMenuItem onClick={() => copyToClipboard(event)}>Copy Public Link</DropdownMenuItem>
-                                                        </DropdownMenuContent>
-                                                    </DropdownMenu>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))
-                                    )}
-                                </TableBody>
-                            </Table>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <ParticipantsModal event={selectedEvent} onClose={() => setSelectedEvent(null)} />
-                <AttendanceModal event={attendanceEvent} onClose={() => setAttendanceEvent(null)} />
             </div>
         </div>
     );
 }
-
-// --- STANDALONE TIMER COMPONENT ---
-const QRTimer = ({ expiresAt }) => {
-    const [timeLeft, setTimeLeft] = React.useState("");
-
-    React.useEffect(() => {
-        if (!expiresAt) return;
-        const timer = setInterval(() => {
-            const diff = new Date(expiresAt) - new Date();
-            if (diff <= 0) {
-                setTimeLeft("EXPIRED");
-                clearInterval(timer);
-            } else {
-                const mins = Math.floor((diff / 1000 / 60) % 60);
-                const secs = Math.floor((diff / 1000) % 60);
-                setTimeLeft(`${mins}:${secs < 10 ? '0' : ''}${secs}`);
-            }
-        }, 1000);
-        return () => clearInterval(timer);
-    }, [expiresAt]);
-
-    return (
-        <div className={`mt-2 font-mono font-bold text-lg p-3 rounded-lg border ${
-            timeLeft === "EXPIRED" ? "text-red-600 bg-red-50 border-red-200" : "text-blue-600 bg-blue-50 border-blue-100"
-        }`}>
-            <div className="text-[10px] uppercase opacity-60">QR Validity Window</div>
-            {timeLeft === "EXPIRED" ? "⚠️ EXPIRED" : `⏳ ${timeLeft}`}
-        </div>
-    );
-};
 
 export default EventManagementPage;
