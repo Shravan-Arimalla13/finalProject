@@ -1,27 +1,15 @@
-// In server/controllers/event.controller.js
+// server/controllers/event.controller.js - IST FIXED VERSION
 const Event = require('../models/event.model');
 const User = require('../models/user.model');
-const Certificate = require('../models/certificate.model');
-const { logActivity } = require('../utils/logger'); 
-const { generateEventQR } = require('./poap.controller'); // We need this function reference
-
-// Helper: Format Time/Date
-const parseEventTime = (date, time) => {
-    const eventDateTime = new Date(date);
-    if (time) {
-        const [hour, minute] = (time || "00:00").split(':').map(Number);
-        eventDateTime.setHours(hour, minute, 0, 0);
-    }
-    return eventDateTime;
-};
+const { logActivity } = require('../utils/logger');
+const { getEventStatusIST, getCurrentIST } = require('../utils/timezone');
 
 // --- 1. CREATE EVENT ---
 exports.createEvent = async (req, res) => {
     try {
         const { name, date, description, certificateConfig, isPublic, startTime, endTime, location } = req.body;
-        const userDept = req.user.department; 
+        const userDept = req.user.department;
 
-        // Basic duplicate check
         const existingEvent = await Event.findOne({ name: name, department: userDept });
         if (existingEvent) {
             return res.status(400).json({ message: 'An event with this name already exists in your department.' });
@@ -31,9 +19,9 @@ exports.createEvent = async (req, res) => {
             name,
             date,
             description,
-            startTime: startTime || "09:00", 
-            endTime: endTime || "17:00",     
-            location: location,              
+            startTime: startTime || "09:00",
+            endTime: endTime || "17:00",
+            location: location,
             createdBy: req.user.id,
             department: userDept,
             isPublic: isPublic || false,
@@ -42,7 +30,6 @@ exports.createEvent = async (req, res) => {
         });
 
         const savedEvent = await newEvent.save();
-        
         await logActivity(req.user, "EVENT_CREATED", `Created new event: "${name}"`);
 
         res.status(201).json(savedEvent);
@@ -52,7 +39,7 @@ exports.createEvent = async (req, res) => {
     }
 };
 
-// --- 2. GET ALL EVENTS (Issuance is always unlocked after creation) ---
+// --- 2. GET ALL EVENTS (WITH IST STATUS CALCULATION) ---
 exports.getAllEvents = async (req, res) => {
     try {
         let query = {};
@@ -64,31 +51,17 @@ exports.getAllEvents = async (req, res) => {
             .populate('createdBy', 'name')
             .sort({ date: -1 });
 
-        const now = new Date();
-
+        // Calculate dynamic status using IST
         const eventsWithStatus = events.map(event => {
-            // 1. Parse Event Start and End Times accurately
-            const eventDateStr = new Date(event.date).toISOString().split('T')[0];
-            const startTime = new Date(`${eventDateStr}T${event.startTime}:00`);
-            const endTime = new Date(`${eventDateStr}T${event.endTime}:00`);
+            const status = getEventStatusIST(event.date, event.startTime, event.endTime);
+            const now = getCurrentIST();
+            const startTime = require('../utils/timezone').parseEventTimeIST(event.date, event.startTime);
             
-            // 2. Determine Dynamic Status
-            let status = 'Upcoming';
-            if (now > endTime) {
-                status = 'Completed';
-            } else if (now >= startTime && now <= endTime) {
-                status = 'Ongoing';
-            }
-
-            // 3. Logic for Business Rules
-            const isFutureEvent = now < startTime; // Used to block premature issuance
-            const isActive = now >= startTime && now <= endTime; // Used for POAP/GPS check
-
             return {
                 ...event.toObject(),
-                status: status, // New dynamic status field for UI
-                isFutureEvent: isFutureEvent,
-                isActive: isActive,
+                status: status,
+                isFutureEvent: now < startTime,
+                isActive: status === 'Ongoing',
                 startTime: event.startTime,
                 endTime: event.endTime
             };
@@ -101,42 +74,23 @@ exports.getAllEvents = async (req, res) => {
     }
 };
 
-// --- REST OF CONTROLLER FUNCTIONS (unchanged) ---
-exports.getEventById = async (req, res) => {
-    try {
-        const event = await Event.findById(req.params.id);
-        if (!event) return res.status(404).json({ message: 'Event not found' });
-        res.json(event);
-    } catch (error) { return res.status(500).send('Server Error'); }
-};
-
+// --- 3. GET PUBLIC EVENTS (FOR STUDENTS) ---
 exports.getPublicEvents = async (req, res) => {
     try {
-        // Fetch only public events
         const events = await Event.find({ isPublic: true })
             .populate('createdBy', 'name')
             .sort({ date: -1 });
 
-        const now = new Date();
-
         const eventsWithStatus = events.map(event => {
-            // Precise time parsing
-            const eventDateStr = new Date(event.date).toISOString().split('T')[0];
-            const startTime = new Date(`${eventDateStr}T${event.startTime}:00`);
-            const endTime = new Date(`${eventDateStr}T${event.endTime}:00`);
+            const status = getEventStatusIST(event.date, event.startTime, event.endTime);
+            const now = getCurrentIST();
+            const startTime = require('../utils/timezone').parseEventTimeIST(event.date, event.startTime);
             
-            let status = 'Upcoming';
-            if (now > endTime) {
-                status = 'Completed';
-            } else if (now >= startTime && now <= endTime) {
-                status = 'Ongoing';
-            }
-
             return {
                 ...event.toObject(),
-                status: status, // This is what the frontend is looking for
+                status: status,
                 isFutureEvent: now < startTime,
-                isActive: now >= startTime && now <= endTime
+                isActive: status === 'Ongoing'
             };
         });
 
@@ -145,6 +99,18 @@ exports.getPublicEvents = async (req, res) => {
         res.status(500).send('Server Error');
     }
 };
+
+// --- 4. OTHER HANDLERS (UNCHANGED) ---
+exports.getEventById = async (req, res) => {
+    try {
+        const event = await Event.findById(req.params.id);
+        if (!event) return res.status(404).json({ message: 'Event not found' });
+        res.json(event);
+    } catch (error) {
+        return res.status(500).send('Server Error');
+    }
+};
+
 exports.registerMeForEvent = async (req, res) => {
     try {
         const { name, email } = req.user;
@@ -153,13 +119,14 @@ exports.registerMeForEvent = async (req, res) => {
         const event = await Event.findById(eventId);
         if (!event) return res.status(404).json({ message: 'Event not found' });
         
+        // Use IST for date comparison
         const eventDate = new Date(event.date);
-        const today = new Date();
+        const today = getCurrentIST();
         eventDate.setHours(0,0,0,0);
         today.setHours(0,0,0,0);
         
         if (eventDate.getTime() < today.getTime()) {
-             return res.status(400).json({ message: 'Registration for this event has closed.' });
+            return res.status(400).json({ message: 'Registration for this event has closed.' });
         }
 
         const isRegistered = event.participants.some(p => p.email === email);
@@ -182,14 +149,16 @@ exports.getEventParticipants = async (req, res) => {
         const event = await Event.findById(req.params.id);
         if (!event) return res.status(404).json({ message: 'Event not found' });
         res.json(event.participants);
-    } catch (error) { return res.status(500).send('Server Error'); }
+    } catch (error) {
+        return res.status(500).send('Server Error');
+    }
 };
 
 exports.registerForEvent = async (req, res) => {
     try {
         const { name, email } = req.body;
         const event = await Event.findById(req.params.id);
-        const normalizedEmail = email.toLowerCase(); 
+        const normalizedEmail = email.toLowerCase();
 
         if (!event) return res.status(404).json({ message: 'Event not found' });
         if (event.participants.some(p => p.email === normalizedEmail)) {
@@ -199,5 +168,7 @@ exports.registerForEvent = async (req, res) => {
         event.participants.push({ name, email: normalizedEmail });
         await event.save();
         res.status(201).json({ message: 'Successfully registered for the event' });
-    } catch (error) { return res.status(500).send('Server Error'); }
+    } catch (error) {
+        return res.status(500).send('Server Error');
+    }
 };

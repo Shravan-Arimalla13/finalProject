@@ -11,6 +11,7 @@ const { generateCertificatePDF, createPDFBuffer } = require('../utils/certificat
 const { sendCertificateIssued } = require('../utils/mailer');
 const { logActivity } = require('../utils/logger');
 const ipfsService = require('../services/ipfs.service');
+const { getCurrentIST, getEventStatusIST } = require('../utils/timezone');
 
 // Helper function to escape regex characters (used in verifyCertificate)
 function escapeRegExp(string) {
@@ -206,126 +207,108 @@ exports.issueEventCertificates = async (req, res) => {
         if (!event) {
             return res.status(404).json({ message: 'Event not found' });
         }
-        
-        // --- CRITICAL FIX: ENFORCE TIME LOCK ---
-        const now = new Date();
-        const eventDateStr = new Date(event.date).toISOString().split('T')[0];
-        const endTime = new Date(`${eventDateStr}T${event.endTime}:00`);
-        
-        // Check if event has ended
-        if (now < endTime) {
+
+        // --- UPDATED TIME CHECK (IST BASED) ---
+        const now = getCurrentIST();
+        const eventStatus = getEventStatusIST(
+            event.date,
+            event.startTime,
+            event.endTime
+        );
+
+        if (eventStatus !== 'Completed') {
             return res.status(400).json({ 
-                message: `Cannot issue certificates until event ends at ${event.endTime}`,
-                eventEndTime: event.endTime,
-                currentTime: now.toISOString(),
-                status: 'Event still in progress'
+                message: `Cannot issue certificates until event ends at ${event.endTime} IST`,
+                currentIST: now.toLocaleString('en-IN', {
+                    timeZone: 'Asia/Kolkata'
+                })
             });
         }
-        
-        console.log(`✅ Time lock passed. Event ended at ${event.endTime}`);
-        // -----------------------------------------
-        
-        // Determine issuance type (all participants vs only attended)
+        // -------------------------------------
+
+        // Determine issuance type (all vs attended)
         const issueType = req.query.issueType; // 'all' or 'attended'
         let targetParticipants = event.participants || [];
 
         if (issueType === 'attended') {
-            // Only issue to students who physically checked in via POAP
             const poapAttendees = await POAP.find({ 
-                eventId: event._id, 
-                isRevoked: false 
+                eventId: event._id,
+                isRevoked: false
             });
-            
+
             if (poapAttendees.length === 0) {
-                return res.status(400).json({ 
+                return res.status(400).json({
                     message: 'No students have checked in for this event yet.',
                     suggestion: 'Use "All Participants" option or wait for check-ins'
                 });
             }
-            
+
             const poapEmails = new Set(
                 poapAttendees.map(p => normalizeEmail(p.studentEmail))
             );
-            
-            targetParticipants = event.participants.filter(p => 
+
+            targetParticipants = event.participants.filter(p =>
                 poapEmails.has(normalizeEmail(p.email))
             );
-            
-            console.log(`📊 Issuing to ${targetParticipants.length} attended students (${poapAttendees.length} POAPs found)`);
-        } else {
-            console.log(`📊 Issuing to all ${targetParticipants.length} registered participants`);
         }
 
         if (targetParticipants.length === 0) {
-            return res.status(400).json({ 
-                message: 'No participants found to issue certificates to.' 
+            return res.status(400).json({
+                message: 'No participants found to issue certificates to.'
             });
         }
 
-        // Process each participant
+        // Process participants
         for (const participant of targetParticipants) {
             const normalizedEmail = normalizeEmail(participant.email);
-            
+
             if (!normalizedEmail) {
-                errors.push(`Skipped ${participant.name}: Invalid email format.`);
-                skippedCount++;
-                continue;
-            }
-            
-            const student = await User.findOne({ email: normalizedEmail });
-            
-            if (!student) {
-                errors.push(`Skipped ${participant.name}: Account not found.`);
-                skippedCount++;
-                continue;
-            }
-            
-            if (!student.walletAddress) {
-                errors.push(`Skipped ${participant.name}: Wallet not connected.`);
+                errors.push(`Skipped ${participant.name}: Invalid email.`);
                 skippedCount++;
                 continue;
             }
 
-            // Check for existing certificate
-            const existingCert = await Certificate.findOne({ 
-                eventName: event.name, 
-                studentEmail: normalizedEmail 
-            });
-            
-            if (existingCert) {
-                console.log(`⏭️ Skipping ${participant.name} - already has certificate`);
+            const student = await User.findOne({ email: normalizedEmail });
+            if (!student || !student.walletAddress) {
                 skippedCount++;
                 continue;
             }
-            
-            // Normalize wallet address
+
+            const existingCert = await Certificate.findOne({
+                eventName: event.name,
+                studentEmail: normalizedEmail
+            });
+
+            if (existingCert) {
+                skippedCount++;
+                continue;
+            }
+
             let studentWallet;
             try {
                 studentWallet = normalizeWalletAddress(student.walletAddress);
-            } catch (error) {
-                errors.push(`Skipped ${participant.name}: Invalid wallet address.`);
+            } catch {
                 skippedCount++;
                 continue;
             }
 
-            // Generate hash
             const hashData = normalizedEmail + event.date + event.name;
-            const certificateHash = crypto.createHash('sha256')
+            const certificateHash = crypto
+                .createHash('sha256')
                 .update(hashData)
                 .digest('hex');
 
             try {
-                // Mint NFT
                 const { transactionHash, tokenId } = await mintNFT(
-                    studentWallet, 
+                    studentWallet,
                     certificateHash
                 );
+
                 const certificateId = `CERT-${nanoid(10)}`;
-                
-                // IPFS Logic for Bulk
+
                 let ipfsHash = null;
                 let ipfsUrl = null;
-                
+
                 try {
                     const certDataForPDF = {
                         certificateId,
@@ -337,83 +320,76 @@ exports.issueEventCertificates = async (req, res) => {
                         studentDepartment: student.department || 'N/A',
                         studentSemester: student.semester || 'N/A'
                     };
-                    
+
                     const pdfBuffer = await createPDFBuffer(certDataForPDF);
                     const ipfsResult = await ipfsService.uploadCertificate(
-                        pdfBuffer, 
+                        pdfBuffer,
                         certDataForPDF
                     );
-                    
+
                     if (ipfsResult) {
                         ipfsHash = ipfsResult.ipfsHash;
                         ipfsUrl = ipfsResult.ipfsUrl;
                     }
-                } catch (ipfsError) { 
-                    console.error(`IPFS error for ${participant.name}:`, ipfsError.message); 
-                }
+                } catch {}
 
-                // Save certificate
                 const newCert = new Certificate({
-                    certificateId, 
-                    tokenId: tokenId.toString(), 
-                    certificateHash, 
+                    certificateId,
+                    tokenId: tokenId.toString(),
+                    certificateHash,
                     transactionHash,
-                    studentName: participant.name, 
+                    studentName: participant.name,
                     studentEmail: normalizedEmail,
-                    eventName: event.name, 
+                    eventName: event.name,
                     eventDate: event.date,
-                    issuedBy: issuerId, 
+                    issuedBy: issuerId,
                     verificationUrl: `/verify/${certificateId}`,
-                    ipfsHash, 
+                    ipfsHash,
                     ipfsUrl
                 });
-                
+
                 await newCert.save();
-                
-                // Send email notification (non-blocking)
+
                 sendCertificateIssued(
-                    normalizedEmail, 
-                    participant.name, 
-                    event.name, 
+                    normalizedEmail,
+                    participant.name,
+                    event.name,
                     certificateId
-                ).catch(err => console.error('Email failed:', err.message));
-                
+                ).catch(() => {});
+
                 issuedCount++;
-                console.log(`✅ Issued certificate to ${participant.name}`);
-                
-            } catch (mintError) {
-                console.error(`❌ Failed for ${participant.name}:`, mintError.message);
-                errors.push(`Failed ${participant.name}: ${mintError.message}`);
+            } catch (err) {
+                errors.push(`Failed ${participant.name}: ${err.message}`);
                 skippedCount++;
             }
         }
 
-        // Mark event as issued
         event.certificatesIssued = true;
         await event.save();
 
-        // Log activity
         if (issuedCount > 0) {
-            await logActivity(req.user, "BULK_ISSUE", 
+            await logActivity(
+                req.user,
+                "BULK_ISSUE",
                 `Issued ${issuedCount} NFTs for event: ${event.name}`
-            ).catch(err => console.error('Logging failed:', err.message));
+            );
         }
 
-        res.status(201).json({ 
+        res.status(201).json({
             message: `Successfully issued ${issuedCount} certificates. Skipped ${skippedCount}.`,
             issued: issuedCount,
             skipped: skippedCount,
-            errors: errors.length > 0 ? errors : undefined
+            errors: errors.length ? errors : undefined
         });
-        
+
     } catch (error) {
-        console.error('Bulk issuance error:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             message: 'Server error during bulk issuance',
-            error: error.message 
+            error: error.message
         });
     }
 };
+
 
 // --- VERIFY CERTIFICATE ---
 exports.verifyCertificate = async (req, res) => {

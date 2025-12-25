@@ -6,6 +6,7 @@ const User = require('../models/user.model');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const { getAddress } = require('ethers/address');
+const { getCurrentIST, calculateAttendanceScoreIST } = require('../utils/timezone');
 
 
 // ============================================
@@ -96,7 +97,7 @@ exports.claimPOAP = async (req, res) => {
         }
 
         // --- CRITICAL FIX: TIMEZONE & TIME VALIDATION ---
-        const now = new Date();
+        const now = getCurrentIST();
         const timeCheck = poapService.validateCheckInTime(
             event.date, 
             event.startTime, 
@@ -119,11 +120,13 @@ exports.claimPOAP = async (req, res) => {
         const studentWallet = getAddress(student.walletAddress.toLowerCase());
         
         // Calculate attendance score based on server-side 'now'
-        const attendanceScore = poapService.calculateAttendanceScore(
-            event.date,
-            event.startTime,
-            now
-        );
+        const attendanceScore = calculateAttendanceScoreIST(
+    event.date,
+    event.startTime,
+    now
+);
+
+        
         
         // Mint POAP on blockchain
         const mintResult = await poapService.mintPOAP(
