@@ -1,4 +1,4 @@
-// server/services/poap.service.js - COMPLETE ENHANCED VERSION
+// server/services/poap.service.js - FIXED: 20-MINUTE WINDOW
 const { ethers } = require('ethers');
 const crypto = require('crypto');
 require('dotenv').config();
@@ -48,7 +48,7 @@ class POAPService {
                 contractArtifact.abi, 
                 signer
             );
-            console.log('✅ POAP Service initialized with 10-minute QR validity');
+            console.log('✅ POAP Service initialized with 20-minute QR window (20 min before to 20 min after)');
         } catch (error) {
             console.error('❌ POAP Initialization failed:', error.message);
             this.contract = null;
@@ -61,33 +61,74 @@ class POAPService {
     }
 
     /**
-     * NEW: Validate if event is currently ongoing (for QR generation)
+     * FIXED: Allow QR generation 20 minutes before start until 20 minutes after event
      */
     validateEventIsLive(eventDate, startTime, endTime) {
-        const status = getEventStatusIST(eventDate, startTime, endTime);
         const now = getCurrentIST();
+        const startDateTime = parseEventTimeIST(eventDate, startTime);
+        const endDateTime = parseEventTimeIST(eventDate, endTime);
         
-        if (status !== 'Ongoing') {
+        // Calculate 20-minute windows
+        const qrWindowStart = new Date(startDateTime.getTime() - 20 * 60 * 1000); // 20 min before
+        const qrWindowEnd = new Date(endDateTime.getTime() + 20 * 60 * 1000); // 20 min after
+        
+        console.log(`🕐 QR Generation Window Check:
+    Current IST: ${formatISTDisplay(now)}
+    Window Opens: ${formatISTDisplay(qrWindowStart)} (20 min before start)
+    Event Start: ${formatISTDisplay(startDateTime)}
+    Event End: ${formatISTDisplay(endDateTime)}
+    Window Closes: ${formatISTDisplay(qrWindowEnd)} (20 min after end)`);
+        
+        // Too early
+        if (now < qrWindowStart) {
+            const minutesUntil = Math.ceil((qrWindowStart - now) / (1000 * 60));
             return {
                 isLive: false,
-                status: status,
-                message: status === 'Upcoming' 
-                    ? `Event hasn't started yet. Opens at ${startTime} IST`
-                    : `Event has ended. Closed at ${endTime} IST`,
+                status: 'TOO_EARLY',
+                message: `QR generation opens ${minutesUntil} minutes before event start (at ${getISTTimeString(qrWindowStart)} IST)`,
                 currentIST: formatISTDisplay(now)
             };
         }
         
+        // Too late
+        if (now > qrWindowEnd) {
+            return {
+                isLive: false,
+                status: 'EXPIRED',
+                message: `QR generation window closed 20 minutes after event ended (at ${getISTTimeString(qrWindowEnd)} IST)`,
+                currentIST: formatISTDisplay(now)
+            };
+        }
+        
+        // Within valid window
+        const isPreEvent = now < startDateTime;
+        const isDuringEvent = now >= startDateTime && now <= endDateTime;
+        const isPostEvent = now > endDateTime;
+        
+        let statusMessage = 'Event is currently live';
+        if (isPreEvent) statusMessage = 'Pre-event check-in window (opens 20 min early)';
+        if (isPostEvent) statusMessage = 'Post-event window (20 min grace period)';
+        
         return {
             isLive: true,
-            status: 'Ongoing',
-            message: 'Event is currently live',
+            status: isDuringEvent ? 'ONGOING' : isPreEvent ? 'PRE_EVENT' : 'POST_EVENT',
+            message: statusMessage,
             currentIST: formatISTDisplay(now)
         };
     }
 
     /**
-     * NEW: Validate QR token (10-minute expiry)
+     * Helper to get IST time string
+     */
+    getISTTimeString(date) {
+        const istDate = new Date(date);
+        const hours = String(istDate.getHours()).padStart(2, '0');
+        const minutes = String(istDate.getMinutes()).padStart(2, '0');
+        return `${hours}:${minutes}`;
+    }
+
+    /**
+     * Validate QR token (10-minute expiry from generation)
      */
     validateQRToken(qrGeneratedAt, token) {
         const now = getCurrentIST();
@@ -116,9 +157,7 @@ class POAPService {
     }
 
     /**
-     * ENHANCED: Calculate attendance score with 10-minute grace period
-     * - First 10 minutes after QR generation = 100%
-     * - After that: -5 points per 5 minutes (min 50%)
+     * Calculate attendance score with 10-minute grace period
      */
     calculateAttendanceScore(qrGeneratedAt, checkInTime) {
         const qrTime = new Date(qrGeneratedAt);
@@ -190,6 +229,15 @@ class POAPService {
     async isAttendanceValid(tokenId) {
         try { return await this.contract.isAttendanceValid(tokenId); }
         catch (e) { return false; }
+    }
+
+    async revokePOAP(tokenId, reason = 'Admin revocation') {
+        if (!this.contract) throw new Error('Contract not initialized');
+        
+        const tx = await this.contract.revokeAttendance(tokenId);
+        await tx.wait();
+        
+        return tx.hash;
     }
 }
 
