@@ -86,18 +86,7 @@ const POAPCheckIn = () => {
         return () => clearInterval(interval);
     }, [qrExpiryTime]);
 
-    const fetchEvent = async () => {
-        try {
-            const res = await api.get(`/events/${eventId}`);
-            setEvent(res.data);
-            
-            if (res.data.qrExpiresAt) {
-                setQrExpiryTime(res.data.qrExpiresAt);
-            }
-        } catch (err) {
-            setError('Event not found');
-        }
-    };
+
 
     const getLocation = () => {
         setGpsLoading(true);
@@ -126,31 +115,197 @@ const POAPCheckIn = () => {
         navigator.geolocation.getCurrentPosition(successHandler, errorHandler, options);
     };
 
-    const handleClaimPOAP = async () => {
-        if (!gpsCoords) return setError('GPS required');
-        setLoading(true);
-        setError(null);
+const handleClaimPOAP = async () => {
+    if (!gpsCoords) {
+        setError('📍 GPS location is required for check-in. Please enable location access.');
+        return;
+    }
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+        const response = await api.post('/poap/claim', {
+            token, 
+            eventId, 
+            gps: gpsCoords
+        });
         
-        try {
-            const response = await api.post('/poap/claim', {
-                token, eventId, gps: gpsCoords
-            });
-            setSuccess(true);
-            setAttendanceScore(response.data.attendanceScore);
+        console.log('✅ POAP Claimed:', response.data);
+        
+        setSuccess(true);
+        setAttendanceScore(response.data.attendanceScore);
+        
+        // Show confetti for perfect score
+        if (response.data.attendanceScore === 100) {
+            setShowConfetti(true);
+            setTimeout(() => setShowConfetti(false), 4000);
+        }
+        
+        // Navigate to dashboard after celebration
+        setTimeout(() => navigate('/dashboard'), 4000);
+        
+    } catch (err) {
+        console.error('❌ POAP Claim Error:', err);
+        
+        const errorData = err.response?.data;
+        const status = err.response?.status;
+        
+        // Enhanced error messages based on error type
+        if (status === 400 && errorData) {
             
-            // Show confetti for perfect score
-            if (response.data.attendanceScore === 100) {
-                setShowConfetti(true);
-                setTimeout(() => setShowConfetti(false), 4000);
+            // Already claimed
+            if (errorData.error === 'ALREADY_CLAIMED') {
+                setError(`✅ Already Checked In!
+
+You have already claimed your POAP for this event.
+
+Your attendance has been recorded on the blockchain.`);
             }
             
-            setTimeout(() => navigate('/dashboard'), 4000);
-        } catch (err) {
-            setError(err.response?.data?.message || 'Claim failed');
-        } finally {
-            setLoading(false);
+            // QR metadata missing or expired
+            else if (errorData.error === 'MISSING_QR_METADATA') {
+                setError(`⚠️ QR Code Data Missing
+
+The QR code is missing critical information.
+
+👉 Action Required:
+   Ask your faculty to generate a FRESH QR code.`);
+            }
+            
+            // QR expired (10 min limit)
+            else if (errorData.error === 'QR_EXPIRED') {
+                setError(`⏰ QR Code Expired
+
+This QR code expired ${Math.abs(Math.floor((Date.now() - new Date(event.qrGeneratedAt).getTime()) / 60000))} minutes ago.
+
+👉 QR codes are valid for 10 minutes only.
+   Ask your faculty to generate a NEW QR code.`);
+            }
+            
+            // No wallet connected
+            else if (errorData.error === 'NO_WALLET') {
+                setError(`🔗 Wallet Not Connected
+
+You must connect your MetaMask wallet before claiming attendance.
+
+👉 Steps:
+   1. Go to Dashboard
+   2. Click "Connect MetaMask"
+   3. Return here and scan QR again`);
+            }
+            
+            // Location mismatch
+            else if (errorData.error === 'LOCATION_MISMATCH') {
+                const distance = errorData.distance || 'unknown';
+                setError(`📍 Location Verification Failed
+
+${errorData.message || 'You are not at the event venue.'}
+
+Distance: ${distance}
+
+👉 You must be physically present at the event location to check in.`);
+            }
+            
+            // Invalid token
+            else if (errorData.message?.includes('Invalid or expired QR')) {
+                setError(`❌ Invalid QR Code
+
+This QR code is not recognized or has been invalidated.
+
+👉 Please:
+   1. Confirm you scanned the correct QR
+   2. Ask faculty to generate a new QR code`);
+            }
+            
+            // Generic 400 error
+            else {
+                setError(`⚠️ Check-In Failed
+
+${errorData.message || 'Unable to complete check-in.'}
+
+Please try again or contact event organizers.`);
+            }
         }
-    };
+        
+        // Event not found
+        else if (status === 404) {
+            setError(`❌ Event Not Found
+
+This event does not exist in the system.
+
+👉 Please scan a valid event QR code.`);
+        }
+        
+        // Authentication error
+        else if (status === 401 || status === 403) {
+            setError(`🔒 Authentication Required
+
+Your session has expired or you are not logged in.
+
+👉 Please:
+   1. Log in to your account
+   2. Return here and try again`);
+        }
+        
+        // Server/Network error
+        else {
+            setError(`⚠️ Server Error
+
+Unable to connect to the attendance system.
+
+👉 Possible causes:
+   • Network connection lost
+   • Server temporarily unavailable
+   • Blockchain transaction failed
+
+Please try again in a moment.`);
+        }
+        
+    } finally {
+        setLoading(false);
+    }
+};
+
+// Update the error display section for better multi-line formatting:
+
+{error && (
+    <motion.div
+        initial={{ x: -20, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        className="animate-in fade-in"
+    >
+        <Alert variant="destructive" className="border-l-4 border-l-red-600 shadow-lg">
+            <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                <AlertDescription className="whitespace-pre-line text-sm leading-relaxed">
+                    {error}
+                </AlertDescription>
+            </div>
+        </Alert>
+    </motion.div>
+)}
+
+// Also ensure event fetch errors are handled:
+
+const fetchEvent = async () => {
+    try {
+        const res = await api.get(`/events/${eventId}`);
+        setEvent(res.data);
+        
+        if (res.data.qrExpiresAt) {
+            setQrExpiryTime(res.data.qrExpiresAt);
+        }
+    } catch (err) {
+        console.error('Failed to fetch event:', err);
+        setError(`❌ Unable to Load Event
+
+Could not retrieve event information.
+
+${err.response?.status === 404 ? 'This event does not exist.' : 'Network error. Please check your connection.'}`);
+    }
+};
+
 
     const formatTime = (seconds) => {
         const mins = Math.floor(seconds / 60);

@@ -11,38 +11,63 @@ const { getCurrentIST, formatISTDisplay } = require('../utils/timezone');
 // ============================================
 // 1. GENERATE QR CODE - FIXED: 20-MINUTE WINDOW
 // ============================================
+// server/controllers/poap.controller.js - ENHANCED ERROR RESPONSES
+
+// Replace the generateEventQR function:
+
 exports.generateEventQR = async (req, res) => {
     try {
         const { eventId } = req.params;
         const event = await Event.findById(eventId);
         
         if (!event) {
-            return res.status(404).json({ message: 'Event not found' });
+            return res.status(404).json({ 
+                message: 'Event not found',
+                error: 'EVENT_NOT_FOUND'
+            });
         }
         
-        // ✅ FIX: Use 20-minute window validation
+        // Validate 20-minute window
         const liveCheck = poapService.validateEventIsLive(event.date, event.startTime, event.endTime);
         
         if (!liveCheck.isLive) {
+            // Calculate exact times for helpful error message
+            const eventDate = new Date(event.date);
+            const [startHour, startMin] = event.startTime.split(':').map(Number);
+            const [endHour, endMin] = event.endTime.split(':').map(Number);
+            
+            const qrOpenTime = new Date(eventDate);
+            qrOpenTime.setHours(startHour, startMin - 20, 0); // 20 min before
+            
+            const qrCloseTime = new Date(eventDate);
+            qrCloseTime.setHours(endHour, endMin + 20, 0); // 20 min after
+            
             return res.status(400).json({
                 message: liveCheck.message,
                 status: liveCheck.status,
                 currentIST: liveCheck.currentIST,
-                eventStart: event.startTime,
-                eventEnd: event.endTime,
+                eventDetails: {
+                    name: event.name,
+                    date: eventDate.toLocaleDateString('en-IN'),
+                    startTime: event.startTime,
+                    endTime: event.endTime,
+                    qrWindowOpens: qrOpenTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+                    qrWindowCloses: qrCloseTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+                },
                 hint: liveCheck.status === 'TOO_EARLY' 
-                    ? 'QR generation opens 20 minutes before event start'
-                    : 'QR generation window has closed (20 min after event end)'
+                    ? `QR generation will be available 20 minutes before the event starts (${event.startTime} IST)`
+                    : `QR generation is only available until 20 minutes after the event ends (${event.endTime} IST)`,
+                error: liveCheck.status
             });
         }
         
         const now = getCurrentIST();
         const checkInToken = crypto.randomBytes(32).toString('hex');
         
-        // Store QR generation time and 10-minute expiry
+        // Store QR metadata
         event.checkInToken = checkInToken;
         event.qrGeneratedAt = now;
-        event.qrExpiresAt = new Date(now.getTime() + 10 * 60 * 1000); // 10 min validity
+        event.qrExpiresAt = new Date(now.getTime() + 10 * 60 * 1000);
         await event.save();
         
         const baseUrl = process.env.FRONTEND_URL || "https://final-project-wheat-mu-84.vercel.app";
@@ -56,7 +81,7 @@ exports.generateEventQR = async (req, res) => {
             color: { dark: '#000000', light: '#FFFFFF' }
         });
         
-        console.log(`✅ QR Generated for "${event.name}" - Valid for 10 minutes (${liveCheck.status})`);
+        console.log(`✅ QR Generated for "${event.name}" (Status: ${liveCheck.status})`);
         
         res.json({ 
             qrCode: qrCode, 
@@ -69,14 +94,184 @@ exports.generateEventQR = async (req, res) => {
         });
         
     } catch (error) {
-        console.error('QR Generation Error:', error);
+        console.error('❌ QR Generation Error:', error);
         res.status(500).json({ 
-            message: 'QR generation failed: ' + error.message,
-            error: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            message: 'Failed to generate QR code. Please try again.',
+            error: 'SERVER_ERROR',
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 };
 
+// Replace the claimPOAP function:
+
+exports.claimPOAP = async (req, res) => {
+    try {
+        const { token, eventId, gps } = req.body;
+        const studentId = req.user.id;
+
+        // Validate required fields
+        if (!token || !eventId || !gps) {
+            return res.status(400).json({ 
+                message: 'Missing required fields: token, eventId, or GPS coordinates',
+                error: 'MISSING_FIELDS'
+            });
+        }
+
+        const event = await Event.findById(eventId);
+        if (!event) {
+            return res.status(404).json({ 
+                message: 'Event not found in the system',
+                error: 'EVENT_NOT_FOUND'
+            });
+        }
+
+        // Validate token
+        if (event.checkInToken !== token) {
+            return res.status(400).json({ 
+                message: 'Invalid or expired QR code',
+                error: 'INVALID_TOKEN',
+                hint: 'This QR code is not recognized. Ask faculty to generate a new one.'
+            });
+        }
+
+        // Check for QR metadata
+        if (!event.qrGeneratedAt) {
+            return res.status(400).json({
+                message: 'QR code metadata is missing',
+                error: 'MISSING_QR_METADATA',
+                hint: 'The QR code is corrupted. Ask faculty to generate a fresh QR code.'
+            });
+        }
+
+        // Validate QR expiry
+        const qrValidation = poapService.validateQRToken(event.qrGeneratedAt, token);
+        
+        if (!qrValidation.isValid) {
+            const minutesExpired = Math.floor((Date.now() - new Date(event.qrGeneratedAt).getTime()) / 60000);
+            
+            return res.status(400).json({
+                message: qrValidation.message,
+                error: 'QR_EXPIRED',
+                expired: true,
+                details: {
+                    generatedAt: event.qrGeneratedAt,
+                    expiryTime: 10, // minutes
+                    minutesSinceGeneration: minutesExpired
+                },
+                instruction: 'Ask your faculty to generate a new QR code'
+            });
+        }
+        
+        console.log(`⏱️ QR Valid - ${qrValidation.remainingSeconds}s remaining`);
+        
+        // Check wallet
+        const student = await User.findById(studentId);
+        if (!student) {
+            return res.status(404).json({ 
+                message: 'Student account not found',
+                error: 'USER_NOT_FOUND'
+            });
+        }
+        
+        if (!student.walletAddress) {
+            return res.status(400).json({ 
+                message: 'Wallet not connected. Please connect MetaMask from Dashboard first.',
+                error: 'NO_WALLET',
+                hint: 'Go to Dashboard → Connect MetaMask → Return here'
+            });
+        }
+
+        const studentWallet = getAddress(student.walletAddress.toLowerCase());
+        
+        // Check for duplicate
+        const existingPOAP = await POAP.findOne({
+            studentEmail: student.email,
+            eventId: event._id
+        });
+        
+        if (existingPOAP) {
+            return res.status(400).json({
+                message: 'You have already claimed your POAP for this event',
+                error: 'ALREADY_CLAIMED',
+                poap: {
+                    tokenId: existingPOAP.tokenId,
+                    checkInTime: existingPOAP.checkInTime,
+                    attendanceScore: existingPOAP.attendanceScore
+                }
+            });
+        }
+        
+        // Calculate attendance score
+        const checkInTime = getCurrentIST();
+        const attendanceScore = poapService.calculateAttendanceScore(
+            event.qrGeneratedAt,
+            checkInTime
+        );
+        
+        // Mint POAP
+        const mintResult = await poapService.mintPOAP(
+            studentWallet,
+            { eventId: event._id, eventName: event.name, eventDate: event.date },
+            gps,
+            event.location
+        );
+        
+        const eventHash = poapService.generateEventHash(event._id, event.name, event.date);
+
+        const newPOAP = await POAP.create({
+            tokenId: mintResult.tokenId,
+            transactionHash: mintResult.transactionHash,
+            eventHash: eventHash,
+            eventId: event._id,
+            eventName: event.name,
+            eventDate: event.date,
+            studentWallet: studentWallet.toLowerCase(),
+            studentEmail: student.email,
+            studentName: student.name,
+            checkInLocation: {
+                latitude: gps.latitude,
+                longitude: gps.longitude,
+                accuracy: gps.accuracy || null
+            },
+            attendanceScore: attendanceScore,
+            issuer: req.user.id
+        });
+        
+        res.status(201).json({ 
+            success: true, 
+            message: 'POAP claimed successfully!',
+            attendanceScore: attendanceScore,
+            scoreMessage: attendanceScore === 100 
+                ? '🎉 Perfect timing! On-time attendance.' 
+                : `⏰ Score: ${attendanceScore}% (checked in ${Math.floor((checkInTime - new Date(event.qrGeneratedAt)) / 60000)} min after QR generation)`,
+            poap: {
+                tokenId: newPOAP.tokenId,
+                transactionHash: newPOAP.transactionHash,
+                checkInTime: newPOAP.checkInTime,
+                attendanceScore: newPOAP.attendanceScore
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ POAP Claim Error:', error);
+        
+        // Handle specific blockchain or GPS errors
+        if (error.message.includes('away') || error.message.includes('km')) {
+            return res.status(400).json({
+                message: error.message,
+                error: 'LOCATION_MISMATCH',
+                hint: 'You must be physically present at the event venue'
+            });
+        }
+        
+        res.status(500).json({ 
+            message: 'POAP claim failed due to server error',
+            error: 'SERVER_ERROR',
+            details: process.env.NODE_ENV === 'development' ? error.message : 'Please try again or contact support'
+        });
+    }
+};
 // ============================================
 // 2. CLAIM POAP - ENHANCED ERROR HANDLING
 // ============================================

@@ -7,6 +7,7 @@ import SignatureCanvas from 'react-signature-canvas';
 import { useAuth } from '../context/AuthContext';
 import { TableSkeleton } from '../components/TableSkeleton'; 
 import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
 
 // --- SHADCN IMPORTS ---
 import { Button } from "@/components/ui/button";
@@ -280,15 +281,117 @@ function EventManagementPage() {
     const handleViewParticipants = (event) => setSelectedEvent(event);
     const handleViewAttendance = (event) => setAttendanceEvent(event);
     
-    const handleGenerateQR = async (event) => {
-        try {
-            const res = await api.get(`/poap/event/${event._id}/qr`);
-            setQrData({ img: res.data.qrCode, url: res.data.checkInUrl });
-            setIsQROpen(true); 
-        } catch (e) {
-            alert("Failed to generate QR code. Ensure event is saved and you are logged in.");
+const handleGenerateQR = async (event) => {
+    try {
+        console.log(`🔍 Generating QR for event: ${event.name}`);
+        setQrData({ img: null, url: '' }); // Reset
+        
+        const res = await api.get(`/poap/event/${event._id}/qr`);
+        
+        setQrData({ 
+            img: res.data.qrCode, 
+            url: res.data.checkInUrl 
+        });
+        setIsQROpen(true);
+        
+        // Success notification
+        toast.success('✅ QR Code Generated!', {
+            description: `Valid for 10 minutes. Status: ${res.data.message}`,
+            duration: 4000
+        });
+        
+    } catch (error) {
+        console.error("❌ QR Generation Error:", error.response || error);
+        
+        const errorData = error.response?.data;
+        const status = error.response?.status;
+        
+        // Calculate time details for better messaging
+        const eventStartTime = event.startTime || '09:00';
+        const eventEndTime = event.endTime || '17:00';
+        const eventDate = new Date(event.date).toLocaleDateString('en-IN', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric'
+        });
+        
+        // Calculate 20 minutes before start time
+        const [startHour, startMin] = eventStartTime.split(':').map(Number);
+        const qrAvailableTime = new Date();
+        qrAvailableTime.setHours(startHour, startMin - 20, 0);
+        const qrAvailableStr = qrAvailableTime.toTimeString().slice(0, 5);
+        
+        if (status === 400 && errorData) {
+            if (errorData.status === 'TOO_EARLY') {
+                // Too early - show when it opens
+                toast.error('⏰ Too Early to Generate QR', {
+                    description: (
+                        <div className="space-y-2 text-sm">
+                            <p className="font-semibold">QR generation window has not opened yet.</p>
+                            <div className="bg-white/10 p-2 rounded">
+                                <p>📅 <strong>Event Date:</strong> {eventDate}</p>
+                                <p>🕐 <strong>Event Time:</strong> {eventStartTime} - {eventEndTime} IST</p>
+                                <p>✅ <strong>QR Opens:</strong> {qrAvailableStr} IST (20 min early)</p>
+                            </div>
+                            <p className="text-xs">Please try again after {qrAvailableStr}</p>
+                        </div>
+                    ),
+                    duration: 10000,
+                    action: {
+                        label: 'Got it',
+                        onClick: () => {}
+                    }
+                });
+            }
+            else if (errorData.status === 'EXPIRED') {
+                // Too late - window closed
+                toast.error('🔒 QR Window Closed', {
+                    description: (
+                        <div className="space-y-2 text-sm">
+                            <p className="font-semibold">The check-in window has expired.</p>
+                            <div className="bg-white/10 p-2 rounded">
+                                <p>🕐 Event ended at <strong>{eventEndTime} IST</strong></p>
+                                <p>⏱️ QR generation was available until 20 minutes after event end</p>
+                            </div>
+                            <p className="text-xs">Students can no longer check in for this event.</p>
+                        </div>
+                    ),
+                    duration: 8000
+                });
+            }
+            else {
+                // Other validation error
+                toast.error('❌ Cannot Generate QR', {
+                    description: errorData.message || errorData.hint || 'Event timing validation failed.',
+                    duration: 6000
+                });
+            }
         }
-    };
+        else if (status === 404) {
+            toast.error('❌ Event Not Found', {
+                description: 'This event could not be found. Please refresh the page.',
+                duration: 5000
+            });
+        }
+        else if (status === 401 || status === 403) {
+            toast.error('🔒 Authentication Required', {
+                description: 'Your session has expired. Please log in again.',
+                duration: 5000,
+                action: {
+                    label: 'Login',
+                    onClick: () => window.location.href = '/login'
+                }
+            });
+        }
+        else {
+            // Network or unknown error
+            toast.error('⚠️ QR Generation Failed', {
+                description: 'Network error or server unavailable. Please check your connection and try again.',
+                duration: 5000
+            });
+        }
+    }
+};
 
     const copyToClipboard = (event) => {
         const publicUrl = `${window.location.origin}/event/${event._id}`;
