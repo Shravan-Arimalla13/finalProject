@@ -277,24 +277,47 @@ export default function ProfessionalQuizUI() {
     }, [gameOver, loading]);
     
     // Initialize quiz
-    useEffect(() => {
-        const init = async () => {
+// Initialize quiz
+useEffect(() => {
+    let isMounted = true;
+    const init = async () => {
+        try {
             const res = await api.get('/quiz/123/details');
-            setQuizMeta(res.data);
-            await fetchNext([]);
-        };
-        init();
-    }, []);
-    
-    const fetchNext = async (currentHistory) => {
-        setLoading(true);
-        setIsAnswered(false);
-        setSelectedOption(null);
-        
-        const res = await api.post('/quiz/next', { quizId: '123', history: currentHistory });
-        setQuestionData(res.data);
-        setLoading(false);
+            if (isMounted) {
+                // Ensure res.data exists
+                setQuizMeta(res.data);
+                // Start the first question
+                await fetchNext([]); 
+            }
+        } catch (err) {
+            console.error("Quiz failed to load", err);
+        }
     };
+    init();
+    return () => { isMounted = false; };
+}, []);
+
+const fetchNext = async (currentHistory) => {
+    setLoading(true);
+    setIsAnswered(false);
+    setSelectedOption(null);
+    
+    try {
+        // Match the POST signature in your Mock API
+        const res = await api.post('/quiz/next', { 
+            quizId: '123', 
+            history: currentHistory 
+        });
+        
+        if (res && res.data) {
+            setQuestionData(res.data);
+        }
+    } catch (err) {
+        console.error("Failed to fetch next question", err);
+    } finally {
+        setLoading(false);
+    }
+};
     
     const handleAnswer = (option) => {
         if (isAnswered) return;
