@@ -49,6 +49,12 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { motion } from "framer-motion";
+import {
+  ShieldCheck, TrendingUp, Target, Sparkles, ArrowRight,
+  Copy, Check, Briefcase, Trophy
+} from "lucide-react";
+
 // ---
 
 // --- VISUAL CARD COMPONENT ---
@@ -218,225 +224,155 @@ const FacultyDashboard = ({ user }) => (
 
 const StudentDashboard = ({ user }) => {
   const [certificates, setCertificates] = useState([]);
-  const [wallet, setWallet] = useState(user.walletAddress || null);
-  const [walletError, setWalletError] = useState(null);
+  const [poaps, setPoaps] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  // Watch for user object updates (fix for refresh issue)
-  useEffect(() => {
-    if (user && user.walletAddress) {
-      setWallet(user.walletAddress);
-    }
-  }, [user]);
 
   useEffect(() => {
-    const fetchCerts = async () => {
+    const loadData = async () => {
       try {
-        const response = await api.get("/certificates/my-certificates");
-        setCertificates(response.data);
+        const certRes = await api.get("/certificates/my-certificates");
+        const poapRes = await api.get("/poap/my-poaps");
+        setCertificates(certRes.data || []);
+        setPoaps(poapRes.data || []);
       } catch (err) {
-        setError("Failed to load your certificates.");
+        console.error("Student dashboard load failed");
       } finally {
         setLoading(false);
       }
     };
-    fetchCerts();
+    loadData();
   }, []);
 
-  const connectWallet = async () => {
-    if (typeof window.ethereum === "undefined") {
-      setWalletError(
-        "MetaMask is not installed. Please install it to connect."
-      );
-      return;
-    }
-    try {
-      const accounts = await window.ethereum.request({
-        method: "eth_requestAccounts",
-      });
-      const account = accounts[0];
-      const response = await api.post("/users/save-wallet", {
-        walletAddress: account,
-      });
-      setWallet(response.data.walletAddress);
-      setWalletError(null);
-    } catch (err) {
-      setWalletError(err.response?.data?.message || err.message);
-    }
-  };
- const [poaps, setPoaps] = useState([]); // <-- New State
-  // --- FETCH POAPS ---
-    useEffect(() => {
-        const fetchPoaps = async () => {
-            try {
-                const res = await api.get('/poap/my-poaps');
-                setPoaps(res.data);
-            } catch (err) {
-                console.error("Failed to load POAPs");
-            }
-        };
-        fetchPoaps();
-    }, []);
-
-  const latestCert = certificates.length > 0 ? certificates[0] : null;
-  const otherCerts = certificates.length > 1 ? certificates.slice(1) : [];
-
-  if (loading)
+  if (loading) {
     return (
-      <div className="p-8 flex justify-center">
-        <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+      <div className="flex justify-center py-12">
+        <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
       </div>
     );
-  if (error)
-    return (
-      <Alert variant="destructive">
-        <AlertTitle>Error</AlertTitle>
-        <AlertDescription>{error}</AlertDescription>
-      </Alert>
-    );
+  }
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col md:flex-row gap-6">
-        {/* Profile Card */}
-        {/* In StudentDashboard component */}
-        {/* ... inside the first Card ... */}
+    <div className="space-y-10">
+      {/* HERO */}
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 rounded-3xl p-8 text-white"
+      >
+        <h1 className="text-3xl font-bold">Welcome back, {user.name}</h1>
+        <p className="opacity-90 mt-1">
+          {user.department} • {user.usn}
+        </p>
 
-        <Card className="flex-1">
-          <CardHeader>
-            <CardTitle>Student Profile</CardTitle>
-            <CardDescription>
-              USN: {user.usn} • {user.department}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {" "}
-            {/* Added space-y-3 for spacing */}
-            {/* Existing Link */}
-            <Link
-              to="/browse-events"
-              className="text-primary hover:underline font-semibold flex items-center"
-            >
-              <Search className="h-4 w-4 mr-2" /> Browse & Register for Events
-            </Link>
-            {/* --- NEW LINK --- */}
-            <Link
-              to="/profile"
-              className="text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 flex items-center text-sm"
-            >
-              <ExternalLink className="h-4 w-4 mr-2" /> View Gamified Profile &
-              Badges
-            </Link>
-            {/* ---------------- */}
+        <div className="flex gap-4 mt-4">
+          <Link to="/browse-events" className="underline flex items-center gap-1">
+            <Search className="h-4 w-4" /> Browse Events
+          </Link>
+          <Link to="/profile" className="underline flex items-center gap-1">
+            <Trophy className="h-4 w-4" /> Achievements
+          </Link>
+        </div>
+      </motion.div>
+
+      {/* STATS */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <Card>
+          <CardContent className="p-6">
+            <Award className="h-6 w-6 mb-2 text-blue-600" />
+            <p className="text-2xl font-bold">{certificates.length}</p>
+            <p className="text-sm text-muted-foreground">Certificates</p>
           </CardContent>
         </Card>
-        {/* Wallet Card */}
-        <Card className="flex-1">
-          <CardHeader>
-            <CardTitle>Web3 Wallet</CardTitle>
-            <CardDescription>Your digital identity.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {wallet ? (
-              <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground">
-                  Connected Address
-                </Label>
-                {/* --- UPDATED STYLING FOR VISIBILITY --- */}
-                <div className="font-mono text-xs p-3 bg-secondary text-secondary-foreground rounded-md break-all border">
-                  {wallet}
-                </div>
-                <Badge
-                  variant="outline"
-                  className="text-green-600 border-green-600 bg-green-50 dark:bg-green-950"
-                >
-                  ● Connected
-                </Badge>
-              </div>
-            ) : (
-              <div>
-                <Button
-                  onClick={connectWallet}
-                  variant="outline"
-                  className="w-full"
-                >
-                  Connect MetaMask
-                </Button>
-                {walletError && (
-                  <p className="text-destructive text-sm mt-2">{walletError}</p>
-                )}
-              </div>
-            )}
+
+        <Card>
+          <CardContent className="p-6">
+            <MapPin className="h-6 w-6 mb-2 text-pink-600" />
+            <p className="text-2xl font-bold">{poaps.length}</p>
+            <p className="text-sm text-muted-foreground">Events Attended</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <TrendingUp className="h-6 w-6 mb-2 text-purple-600" />
+            <p className="text-2xl font-bold">Advanced</p>
+            <p className="text-sm text-muted-foreground">Skill Level</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <Target className="h-6 w-6 mb-2 text-indigo-600" />
+            <p className="text-2xl font-bold">70%</p>
+            <p className="text-sm text-muted-foreground">Career Progress</p>
           </CardContent>
         </Card>
       </div>
-      <SmartRecommendations />
-      {/* Latest Certificate */}
-      {latestCert && (
-        <div className="space-y-4">
-          <h2 className="text-xl font-bold flex items-center">
-            <Sparkles className="h-5 w-5 mr-2 text-yellow-500" /> Newest
-            Achievement
-          </h2>
-          <div className="md:w-1/2 lg:w-1/3">
-            <CertificateVisualCard cert={latestCert} />
-          </div>
-        </div>
-      )}
 
-                  {/* --- NEW: POAP COLLECTION --- */}
-            {poaps.length > 0 && (
-                <div className="space-y-4">
-                    <h2 className="text-xl font-bold flex items-center">
-                        <MapPin className="h-5 w-5 mr-2 text-pink-500" /> Event Attendance (POAPs)
-                    </h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {poaps.map((poap) => (
-                            <Card key={poap._id} className="bg-slate-50 dark:bg-slate-900 border-l-4 border-l-pink-500">
-                                <CardContent className="p-4">
-                                    <div className="flex justify-between items-start mb-2">
-                                        <h4 className="font-bold text-sm">{poap.eventName}</h4>
-                                        <Badge variant="outline" className="text-[10px] bg-white">POAP</Badge>
-                                    </div>
-                                    <div className="text-xs text-muted-foreground space-y-1">
-                                        <div className="flex items-center gap-1">
-                                            <Clock className="h-3 w-3" /> 
-                                            {new Date(poap.checkInTime).toLocaleString()}
-                                        </div>
-                                        <div className="font-mono text-[10px] truncate bg-muted p-1 rounded">
-                                            Hash: {poap.transactionHash?.substring(0, 10)}...
-                                        </div>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        ))}
-                    </div>
-                </div>
-            )}
-            {/* ---------------------------- */}
-
-      {/* All Certificates */}
+      {/* CERTIFICATES */}
       <div className="space-y-4">
-        <h2 className="text-xl font-bold flex items-center">
-          <Award className="h-5 w-5 mr-2" /> Portfolio
+        <h2 className="text-xl font-bold flex items-center gap-2">
+          <Award className="h-5 w-5 text-blue-600" />
+          My Credentials
         </h2>
+
         {certificates.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl">
-            <Award className="h-12 w-12 mx-auto mb-4 opacity-20" />
-            <p>No certificates earned yet.</p>
-          </div>
+          <p className="text-muted-foreground">No certificates yet.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {(latestCert ? otherCerts : certificates).map((cert) => (
-              <CertificateVisualCard key={cert._id} cert={cert} />
+            {certificates.map((cert) => (
+              <Card key={cert._id} className="overflow-hidden">
+                <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-4 text-white">
+                  <h3 className="font-bold truncate">{cert.eventName}</h3>
+                  {cert.isBlockchainVerified && (
+                    <span className="text-xs flex items-center gap-1 mt-1">
+                      <ShieldCheck className="h-3 w-3" /> Verified
+                    </span>
+                  )}
+                </div>
+                <CardContent className="p-4 space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    Issued: {new Date(cert.createdAt).toLocaleDateString()}
+                  </p>
+                  <Link
+                    to={`/verify/${cert.certificateId}`}
+                    className="text-sm text-primary underline"
+                  >
+                    Verify Certificate
+                  </Link>
+                </CardContent>
+              </Card>
             ))}
           </div>
         )}
       </div>
+
+      {/* POAPS */}
+      {poaps.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            <MapPin className="h-5 w-5 text-pink-600" />
+            Event Attendance (POAPs)
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {poaps.map((poap) => (
+              <Card key={poap._id} className="border-l-4 border-pink-500">
+                <CardContent className="p-4">
+                  <h4 className="font-bold">{poap.eventName}</h4>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {new Date(poap.checkInTime).toLocaleString()}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
 
 // --- MAIN PAGE WRAPPER ---
 function DashboardPage() {
