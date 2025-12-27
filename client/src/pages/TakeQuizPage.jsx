@@ -133,32 +133,6 @@ const GameOverView = ({ result, time, onRetry, onExit }) => {
                 className="max-w-lg w-full"
             >
                 <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl overflow-hidden">
-                    {passed && (
-                        <div className="absolute inset-0 pointer-events-none">
-                            {[...Array(30)].map((_, i) => (
-                                <motion.div
-                                    key={i}
-                                    className="absolute w-2 h-2 rounded-full"
-                                    style={{
-                                        left: `${Math.random() * 100}%`,
-                                        top: '-10%',
-                                        backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'][Math.floor(Math.random() * 5)]
-                                    }}
-                                    animate={{
-                                        y: ['0vh', '110vh'],
-                                        x: [(Math.random() - 0.5) * 200],
-                                        rotate: [0, Math.random() * 360],
-                                        opacity: [1, 0]
-                                    }}
-                                    transition={{
-                                        duration: 2 + Math.random() * 2,
-                                        delay: Math.random() * 0.5
-                                    }}
-                                />
-                            ))}
-                        </div>
-                    )}
-                    
                     <div className={`p-8 text-center ${passed ? 'bg-gradient-to-r from-green-500 to-emerald-600' : 'bg-gradient-to-r from-orange-500 to-red-600'}`}>
                         <motion.div
                             initial={{ scale: 0 }}
@@ -244,7 +218,6 @@ export default function TakeQuizPage() {
     const [gameOver, setGameOver] = useState(false);
     const [finalResult, setFinalResult] = useState(null);
     
-    // Timer
     useEffect(() => {
         let interval = null;
         if (!gameOver && !loading) {
@@ -253,7 +226,6 @@ export default function TakeQuizPage() {
         return () => clearInterval(interval);
     }, [gameOver, loading]);
     
-    // Initialize quiz
     useEffect(() => {
         const init = async () => {
             try {
@@ -276,7 +248,6 @@ export default function TakeQuizPage() {
         
         try {
             const res = await api.post('/quiz/next', { quizId, history: currentHistory });
-            console.log('📝 Question received:', res.data);
             setQuestionData(res.data);
         } catch (error) {
             console.error('Failed to fetch question:', error);
@@ -286,35 +257,30 @@ export default function TakeQuizPage() {
         }
     };
     
-    // ⚠️ FIXED: Compare option values properly (trim whitespace)
+    // --- FIXED: STRONGER STRING NORMALIZATION FOR ANSWER CHECKING ---
     const handleAnswer = (option) => {
         if (isAnswered) return;
         setSelectedOption(option);
         setIsAnswered(true);
         
-        // Normalize both strings for comparison
+        // Trim whitespace and compare lowercase to prevent false "wrong" results
         const normalizedSelected = option.trim().toLowerCase();
         const normalizedCorrect = questionData.correctAnswer.trim().toLowerCase();
         
-        console.log('🎯 Answer Check:', {
-            selected: option,
-            correct: questionData.correctAnswer,
-            normalized_selected: normalizedSelected,
-            normalized_correct: normalizedCorrect,
-            match: normalizedSelected === normalizedCorrect
+        console.log('🎯 Comparing Answer:', {
+            selected: normalizedSelected,
+            correct: normalizedCorrect
         });
-        
-        // Update score if correct
+
         if (normalizedSelected === normalizedCorrect) {
             setScore(s => s + 1);
-            console.log('✅ Correct answer! Score incremented');
+            console.log('✅ Correct Answer detected.');
         } else {
-            console.log('❌ Wrong answer');
+            console.log('❌ Wrong Answer detected.');
         }
     };
     
     const handleNext = async () => {
-        // Normalize for final check
         const normalizedSelected = selectedOption.trim().toLowerCase();
         const normalizedCorrect = questionData.correctAnswer.trim().toLowerCase();
         const isCorrect = normalizedSelected === normalizedCorrect;
@@ -326,24 +292,23 @@ export default function TakeQuizPage() {
         setHistory(newHistory);
         
         if (newHistory.length >= (quizMeta?.totalQuestions || 10)) {
-            // Quiz Complete - Submit
-            const finalScore = ((isCorrect ? score + 1 : score) / (quizMeta?.totalQuestions || 10)) * 100;
+            const finalScorePercentage = (score / (quizMeta?.totalQuestions || 10)) * 100;
             
             try {
                 const submitRes = await api.post('/quiz/submit', {
                     quizId,
-                    score: isCorrect ? score + 1 : score
+                    score: score
                 });
                 
                 setFinalResult({ 
-                    score: finalScore,
+                    score: finalScorePercentage,
                     passed: submitRes.data.passed,
                     certificateId: submitRes.data.certificateId
                 });
                 setGameOver(true);
             } catch (error) {
                 console.error('Submit failed:', error);
-                setFinalResult({ score: finalScore });
+                setFinalResult({ score: finalScorePercentage });
                 setGameOver(true);
             }
         } else {
@@ -466,7 +431,7 @@ export default function TakeQuizPage() {
                                 
                                 <div className="grid gap-4">
                                     {questionData?.options.map((option, i) => {
-                                        // FIXED: Normalize both for comparison
+                                        // FIXED: Normalize both for UI feedback comparison
                                         const normalizedOption = option.trim().toLowerCase();
                                         const normalizedCorrect = questionData.correctAnswer.trim().toLowerCase();
                                         const normalizedSelected = selectedOption ? selectedOption.trim().toLowerCase() : null;
