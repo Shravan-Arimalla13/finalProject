@@ -51,7 +51,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { motion } from "framer-motion";
 import {
-  ShieldCheck, TrendingUp, Target, Sparkles, ArrowRight,
+  ShieldCheck, TrendingUp, Target, ArrowRight,
   Copy, Check, Briefcase, Trophy
 } from "lucide-react";
 
