@@ -1,3 +1,4 @@
+// client/src/pages/TakeQuizPage.jsx - FIXED: Answer Checking Logic
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -275,6 +276,7 @@ export default function TakeQuizPage() {
         
         try {
             const res = await api.post('/quiz/next', { quizId, history: currentHistory });
+            console.log('📝 Question received:', res.data);
             setQuestionData(res.data);
         } catch (error) {
             console.error('Failed to fetch question:', error);
@@ -284,16 +286,43 @@ export default function TakeQuizPage() {
         }
     };
     
+    // ⚠️ FIXED: Compare option values properly (trim whitespace)
     const handleAnswer = (option) => {
         if (isAnswered) return;
         setSelectedOption(option);
         setIsAnswered(true);
-        if (option === questionData.correctAnswer) setScore(s => s + 1);
+        
+        // Normalize both strings for comparison
+        const normalizedSelected = option.trim().toLowerCase();
+        const normalizedCorrect = questionData.correctAnswer.trim().toLowerCase();
+        
+        console.log('🎯 Answer Check:', {
+            selected: option,
+            correct: questionData.correctAnswer,
+            normalized_selected: normalizedSelected,
+            normalized_correct: normalizedCorrect,
+            match: normalizedSelected === normalizedCorrect
+        });
+        
+        // Update score if correct
+        if (normalizedSelected === normalizedCorrect) {
+            setScore(s => s + 1);
+            console.log('✅ Correct answer! Score incremented');
+        } else {
+            console.log('❌ Wrong answer');
+        }
     };
     
     const handleNext = async () => {
-        const isCorrect = selectedOption === questionData.correctAnswer;
-        const newHistory = [...history, { questionText: questionData.question, isCorrect }];
+        // Normalize for final check
+        const normalizedSelected = selectedOption.trim().toLowerCase();
+        const normalizedCorrect = questionData.correctAnswer.trim().toLowerCase();
+        const isCorrect = normalizedSelected === normalizedCorrect;
+        
+        const newHistory = [...history, { 
+            questionText: questionData.question, 
+            isCorrect: isCorrect 
+        }];
         setHistory(newHistory);
         
         if (newHistory.length >= (quizMeta?.totalQuestions || 10)) {
@@ -437,8 +466,13 @@ export default function TakeQuizPage() {
                                 
                                 <div className="grid gap-4">
                                     {questionData?.options.map((option, i) => {
-                                        const isCorrect = option === questionData.correctAnswer;
-                                        const isSelected = option === selectedOption;
+                                        // FIXED: Normalize both for comparison
+                                        const normalizedOption = option.trim().toLowerCase();
+                                        const normalizedCorrect = questionData.correctAnswer.trim().toLowerCase();
+                                        const normalizedSelected = selectedOption ? selectedOption.trim().toLowerCase() : null;
+                                        
+                                        const isCorrect = normalizedOption === normalizedCorrect;
+                                        const isSelected = normalizedOption === normalizedSelected;
                                         const showResult = isAnswered;
                                         
                                         let className = "group relative flex items-center p-6 rounded-2xl border-2 transition-all text-left font-semibold text-lg cursor-pointer";
