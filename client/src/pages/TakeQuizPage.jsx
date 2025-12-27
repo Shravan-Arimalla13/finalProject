@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import api from '../api';
 import { 
     ChevronLeft, Timer, Trophy, AlertCircle, 
     ArrowRight, CheckCircle, XCircle, Loader2,
@@ -7,34 +9,8 @@ import {
     Target, TrendingUp, Clock
 } from 'lucide-react';
 
-// Mock API (replace with actual imports)
-const api = {
-    get: async (url) => {
-        // Simulate API call
-        return { data: { topic: 'React Hooks', totalQuestions: 10, passingScore: 70 } };
-    },
-    post: async (url, data) => {
-        // Simulate API response with code snippet
-        return {
-            data: {
-                question: "What will be the output of this code?",
-                options: ["undefined", "null", "Error", "0"],
-                correctAnswer: "undefined",
-                explanation: "The variable is accessed before initialization in the temporal dead zone.",
-                difficulty: "Medium",
-                hasCode: true,
-                codeSnippet: `function example() {
-  console.log(x);
-  let x = 5;
-}
-example();`
-            }
-        };
-    }
-};
-
-// Syntax Highlighter Component
-const CodeBlock = ({ code, language = "javascript" }) => {
+// Code Block Component (for code questions)
+const CodeBlock = ({ code }) => {
     const lines = code.split('\n');
     
     return (
@@ -46,7 +22,7 @@ const CodeBlock = ({ code, language = "javascript" }) => {
                         <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
                         <div className="w-3 h-3 rounded-full bg-green-500"></div>
                     </div>
-                    <span className="text-xs font-mono text-slate-400 ml-3">{language}</span>
+                    <span className="text-xs font-mono text-slate-400 ml-3">javascript</span>
                 </div>
                 <Code className="w-4 h-4 text-slate-400" />
             </div>
@@ -156,7 +132,6 @@ const GameOverView = ({ result, time, onRetry, onExit }) => {
                 className="max-w-lg w-full"
             >
                 <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl overflow-hidden">
-                    {/* Confetti Effect */}
                     {passed && (
                         <div className="absolute inset-0 pointer-events-none">
                             {[...Array(30)].map((_, i) => (
@@ -183,7 +158,6 @@ const GameOverView = ({ result, time, onRetry, onExit }) => {
                         </div>
                     )}
                     
-                    {/* Header */}
                     <div className={`p-8 text-center ${passed ? 'bg-gradient-to-r from-green-500 to-emerald-600' : 'bg-gradient-to-r from-orange-500 to-red-600'}`}>
                         <motion.div
                             initial={{ scale: 0 }}
@@ -204,7 +178,6 @@ const GameOverView = ({ result, time, onRetry, onExit }) => {
                         </p>
                     </div>
                     
-                    {/* Stats */}
                     <div className="p-8 space-y-6">
                         <div className="flex justify-center">
                             <div className="relative inline-flex">
@@ -255,7 +228,10 @@ const GameOverView = ({ result, time, onRetry, onExit }) => {
 };
 
 // Main Quiz Component
-export default function ProfessionalQuizUI() {
+export default function TakeQuizPage() {
+    const { quizId } = useParams();
+    const navigate = useNavigate();
+    
     const [loading, setLoading] = useState(true);
     const [quizMeta, setQuizMeta] = useState(null);
     const [questionData, setQuestionData] = useState(null);
@@ -279,21 +255,33 @@ export default function ProfessionalQuizUI() {
     // Initialize quiz
     useEffect(() => {
         const init = async () => {
-            const res = await api.get('/quiz/123/details');
-            setQuizMeta(res.data);
-            await fetchNext([]);
+            try {
+                const res = await api.get(`/quiz/${quizId}/details`);
+                setQuizMeta(res.data);
+                await fetchNext([]);
+            } catch (error) {
+                console.error('Quiz initialization failed:', error);
+                alert('Failed to load quiz. Please try again.');
+                navigate('/student/quizzes');
+            }
         };
         init();
-    }, []);
+    }, [quizId]);
     
     const fetchNext = async (currentHistory) => {
         setLoading(true);
         setIsAnswered(false);
         setSelectedOption(null);
         
-        const res = await api.post('/quiz/next', { quizId: '123', history: currentHistory });
-        setQuestionData(res.data);
-        setLoading(false);
+        try {
+            const res = await api.post('/quiz/next', { quizId, history: currentHistory });
+            setQuestionData(res.data);
+        } catch (error) {
+            console.error('Failed to fetch question:', error);
+            alert('Failed to load next question');
+        } finally {
+            setLoading(false);
+        }
     };
     
     const handleAnswer = (option) => {
@@ -308,9 +296,27 @@ export default function ProfessionalQuizUI() {
         const newHistory = [...history, { questionText: questionData.question, isCorrect }];
         setHistory(newHistory);
         
-        if (newHistory.length >= 10) {
-            setFinalResult({ score: ((isCorrect ? score + 1 : score) / 10) * 100 });
-            setGameOver(true);
+        if (newHistory.length >= (quizMeta?.totalQuestions || 10)) {
+            // Quiz Complete - Submit
+            const finalScore = ((isCorrect ? score + 1 : score) / (quizMeta?.totalQuestions || 10)) * 100;
+            
+            try {
+                const submitRes = await api.post('/quiz/submit', {
+                    quizId,
+                    score: isCorrect ? score + 1 : score
+                });
+                
+                setFinalResult({ 
+                    score: finalScore,
+                    passed: submitRes.data.passed,
+                    certificateId: submitRes.data.certificateId
+                });
+                setGameOver(true);
+            } catch (error) {
+                console.error('Submit failed:', error);
+                setFinalResult({ score: finalScore });
+                setGameOver(true);
+            }
         } else {
             await fetchNext(newHistory);
         }
@@ -324,12 +330,12 @@ export default function ProfessionalQuizUI() {
                 result={finalResult} 
                 time={formatTime(seconds)}
                 onRetry={() => window.location.reload()}
-                onExit={() => window.history.back()}
+                onExit={() => navigate('/student/quizzes')}
             />
         );
     }
     
-    const progress = ((history.length + 1) / 10) * 100;
+    const progress = ((history.length + 1) / (quizMeta?.totalQuestions || 10)) * 100;
     
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/30 dark:from-slate-950 dark:via-indigo-950/10 dark:to-purple-950/10">
@@ -338,7 +344,7 @@ export default function ProfessionalQuizUI() {
                 <div className="max-w-5xl mx-auto px-6 py-4">
                     <div className="flex items-center justify-between">
                         <button 
-                            onClick={() => window.history.back()}
+                            onClick={() => navigate('/student/quizzes')}
                             className="flex items-center gap-2 text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors font-medium group"
                         >
                             <ChevronLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
@@ -370,7 +376,7 @@ export default function ProfessionalQuizUI() {
                     <div className="flex justify-between items-center text-xs font-bold uppercase tracking-widest">
                         <span className="text-slate-500 dark:text-slate-400">Progress</span>
                         <span className="text-indigo-600 dark:text-indigo-400">
-                            Question {history.length + 1} of 10
+                            Question {history.length + 1} of {quizMeta?.totalQuestions || 10}
                         </span>
                     </div>
                     <div className="h-3 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner">
@@ -411,30 +417,24 @@ export default function ProfessionalQuizUI() {
                             className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden"
                         >
                             <div className="p-8 md:p-12 space-y-8">
-                                {/* Difficulty Badge */}
                                 <div className="flex items-center justify-between">
                                     <DifficultyBadge difficulty={questionData?.difficulty} />
-                                    <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-                                        {questionData?.hasCode && (
-                                            <div className="flex items-center gap-1 text-xs bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">
-                                                <Code className="w-3 h-3" />
-                                                Code Question
-                                            </div>
-                                        )}
-                                    </div>
+                                    {questionData?.hasCode && (
+                                        <div className="flex items-center gap-1 text-xs bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">
+                                            <Code className="w-3 h-3" />
+                                            Code Question
+                                        </div>
+                                    )}
                                 </div>
                                 
-                                {/* Question Text */}
                                 <h2 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-white leading-tight">
                                     {questionData?.question}
                                 </h2>
                                 
-                                {/* Code Snippet */}
                                 {questionData?.hasCode && questionData?.codeSnippet && (
-                                    <CodeBlock code={questionData.codeSnippet} language="javascript" />
+                                    <CodeBlock code={questionData.codeSnippet} />
                                 )}
                                 
-                                {/* Options */}
                                 <div className="grid gap-4">
                                     {questionData?.options.map((option, i) => {
                                         const isCorrect = option === questionData.correctAnswer;
@@ -464,7 +464,6 @@ export default function ProfessionalQuizUI() {
                                                 whileHover={!isAnswered ? { x: 4 } : {}}
                                                 whileTap={!isAnswered ? { scale: 0.98 } : {}}
                                             >
-                                                {/* Letter Badge */}
                                                 <div className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold mr-4 transition-colors ${
                                                     showResult && isCorrect ? 'bg-green-500 text-white' :
                                                     showResult && isSelected ? 'bg-red-500 text-white' :
@@ -474,10 +473,8 @@ export default function ProfessionalQuizUI() {
                                                     {String.fromCharCode(65 + i)}
                                                 </div>
                                                 
-                                                {/* Option Text */}
                                                 <span className="flex-1">{option}</span>
                                                 
-                                                {/* Result Icon */}
                                                 {showResult && isCorrect && (
                                                     <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
                                                 )}
@@ -489,7 +486,6 @@ export default function ProfessionalQuizUI() {
                                     })}
                                 </div>
                                 
-                                {/* Explanation */}
                                 {isAnswered && (
                                     <motion.div
                                         initial={{ opacity: 0, y: 10 }}
