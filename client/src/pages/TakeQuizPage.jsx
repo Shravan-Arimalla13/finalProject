@@ -41,10 +41,20 @@ const TakeQuizPage = () => {
         loadQuizDetails();
     }, [quizId]);
 
-    // Load next question when answers change
+    // FIXED: Check limit BEFORE loading next question
     useEffect(() => {
-        if (quiz && !result && answers.length < quiz.totalQuestions && !showExplanation) {
-            loadNextQuestion();
+        if (quiz && !result && !showExplanation) {
+            // FIX 1: Check if we've reached the limit
+            if (answers.length >= quiz.totalQuestions) {
+                console.log('✅ Quiz limit reached, submitting...');
+                submitQuiz();
+                return;
+            }
+            
+            // Only load next question if below limit
+            if (answers.length < quiz.totalQuestions) {
+                loadNextQuestion();
+            }
         }
     }, [quiz, answers, showExplanation]);
 
@@ -60,7 +70,7 @@ const TakeQuizPage = () => {
             }
             
             setQuiz(res.data);
-            console.log('✅ Quiz loaded:', res.data.topic);
+            console.log(`✅ Quiz loaded: ${res.data.topic} (${res.data.totalQuestions} questions)`);
         } catch (err) {
             console.error('❌ Failed to load quiz:', err);
             setError('Failed to load quiz. Please try again.');
@@ -78,13 +88,6 @@ const TakeQuizPage = () => {
                 quizId: quizId,
                 history: answers
             });
-
-            // Handle quiz completion
-            if (res.data.shouldEnd) {
-                console.log('✅ All questions answered, submitting...');
-                await submitQuiz();
-                return;
-            }
 
             // Validate response data
             if (!res.data || !res.data.question || !Array.isArray(res.data.options)) {
@@ -107,24 +110,29 @@ const TakeQuizPage = () => {
     const handleAnswer = () => {
         if (!selectedAnswer || !currentQuestion) return;
 
-        const isCorrect = selectedAnswer === currentQuestion.correctAnswer;
+        // FIX 2: Normalize strings for comparison (trim whitespace, case-insensitive)
+        const normalizeAnswer = (str) => str.trim().toLowerCase();
+        
+        const isCorrect = normalizeAnswer(selectedAnswer) === normalizeAnswer(currentQuestion.correctAnswer);
         
         const newAnswer = {
             questionText: currentQuestion.question,
-            selectedAnswer: selectedAnswer,
-            correctAnswer: currentQuestion.correctAnswer,
+            selectedAnswer: selectedAnswer.trim(), // Store original trimmed version
+            correctAnswer: currentQuestion.correctAnswer.trim(),
             isCorrect: isCorrect,
             explanation: currentQuestion.explanation
         };
 
         console.log(`${isCorrect ? '✅ Correct' : '❌ Wrong'} answer for Q${currentIndex + 1}`);
+        console.log('Selected:', selectedAnswer.trim());
+        console.log('Correct:', currentQuestion.correctAnswer.trim());
         
         setLastAnswerCorrect(isCorrect);
         setShowExplanation(true);
         
-        // Add answer to history after a short delay to show feedback
+        // Add answer to history after showing feedback
         setTimeout(() => {
-            setAnswers([...answers, newAnswer]);
+            setAnswers(prev => [...prev, newAnswer]);
         }, 100);
     };
 
@@ -368,7 +376,7 @@ const TakeQuizPage = () => {
                                 {/* Options */}
                                 {currentQuestion.options && currentQuestion.options.map((option, idx) => {
                                     const isSelected = selectedAnswer === option;
-                                    const isCorrect = option === currentQuestion.correctAnswer;
+                                    const isCorrect = option.trim().toLowerCase() === currentQuestion.correctAnswer.trim().toLowerCase();
                                     const showFeedback = showExplanation;
 
                                     return (
@@ -470,7 +478,7 @@ const TakeQuizPage = () => {
                                         }}
                                         className="w-full h-12 text-lg"
                                     >
-                                        {currentIndex + 1 === quiz.totalQuestions ? (
+                                        {currentIndex + 1 >= quiz.totalQuestions ? (
                                             <>
                                                 <CheckCircle2 className="mr-2 h-5 w-5" />
                                                 Finish Quiz
