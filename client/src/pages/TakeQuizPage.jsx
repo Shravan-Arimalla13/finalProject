@@ -1,436 +1,412 @@
-// server/controllers/quiz.controller.js - COMPLETE FIX
-const { GoogleGenerativeAI } = require("@google/generative-ai");
-const Quiz = require('../models/quiz.model');
-const Certificate = require('../models/certificate.model');
-const Event = require('../models/event.model');
-const User = require('../models/user.model');
-const { nanoid } = require('nanoid');
-const crypto = require('crypto');
-const { mintNFT } = require('../utils/blockchain');
-const { sendCertificateIssued } = require('../utils/mailer');
+// client/src/pages/TakeQuizPage.jsx - FIXED CLIENT VERSION
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import api from '../api';
+import { motion, AnimatePresence } from 'framer-motion';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// UI Components
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge-item";
+import { Alert, AlertDescription } from "@/components/ui/alert-box";
+import { Skeleton } from "@/components/ui/skeleton";
+import { 
+    CheckCircle2, XCircle, Loader2, Award, 
+    Trophy, Clock, Brain, Zap, AlertCircle 
+} from "lucide-react";
+import { toast } from "sonner";
 
-const MODEL_PRIORITY = [
-    "gemini-2.5-flash-lite",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-3-flash-preview"
-];
+const TakeQuizPage = () => {
+    const { quizId } = useParams();
+    const navigate = useNavigate();
 
-const cleanJSON = (text) => {
-    if (!text) return "";
-    return text.replace(/```json/g, '').replace(/```/g, '').trim();
-};
+    // States
+    const [quiz, setQuiz] = useState(null);
+    const [currentQuestion, setCurrentQuestion] = useState(null);
+    const [answers, setAnswers] = useState([]);
+    const [selectedAnswer, setSelectedAnswer] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [submitting, setSubmitting] = useState(false);
+    const [result, setResult] = useState(null);
+    const [error, setError] = useState(null);
 
-// --- IMPROVED: Similarity checker with better algorithm ---
-function calculateSimilarity(str1, str2) {
-    const s1 = str1.toLowerCase().trim();
-    const s2 = str2.toLowerCase().trim();
-    
-    // Check for exact match
-    if (s1 === s2) return 1.0;
-    
-    // Check for substring containment
-    if (s1.includes(s2) || s2.includes(s1)) return 0.9;
-    
-    // Levenshtein distance
-    const longer = s1.length > s2.length ? s1 : s2;
-    const shorter = s1.length > s2.length ? s2 : s1;
-    
-    if (longer.length === 0) return 1.0;
-    
-    const editDistance = levenshteinDistance(longer, shorter);
-    return (longer.length - editDistance) / longer.length;
-}
+    const currentIndex = answers.length;
 
-function levenshteinDistance(str1, str2) {
-    const matrix = [];
-    
-    for (let i = 0; i <= str2.length; i++) {
-        matrix[i] = [i];
-    }
-    
-    for (let j = 0; j <= str1.length; j++) {
-        matrix[0][j] = j;
-    }
-    
-    for (let i = 1; i <= str2.length; i++) {
-        for (let j = 1; j <= str1.length; j++) {
-            if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
-                matrix[i][j] = matrix[i - 1][j - 1];
-            } else {
-                matrix[i][j] = Math.min(
-                    matrix[i - 1][j - 1] + 1,
-                    matrix[i][j - 1] + 1,
-                    matrix[i - 1][j] + 1
-                );
-            }
+    // Load quiz details on mount
+    useEffect(() => {
+        loadQuizDetails();
+    }, [quizId]);
+
+    // Load next question when answers change
+    useEffect(() => {
+        if (quiz && !result && answers.length < quiz.totalQuestions) {
+            loadNextQuestion();
         }
-    }
-    
-    return matrix[str2.length][str1.length];
-}
+    }, [quiz, answers]);
 
-// --- IMPROVED: Better fallback system ---
-function getFallbackQuestion(topic, difficulty, index, previousQuestions = []) {
-    const fallbacks = [
-        {
-            question: `What is a fundamental concept in ${topic}?`,
-            options: ["Core principles", "Random facts", "Unrelated topics", "Historical dates"],
-            correctAnswer: "Core principles",
-            explanation: "Understanding fundamental concepts is essential in any field of study."
-        },
-        {
-            question: `Which skill is most important for mastering ${topic}?`,
-            options: ["Problem-solving", "Memorization only", "Avoiding practice", "Guessing"],
-            correctAnswer: "Problem-solving",
-            explanation: "Problem-solving abilities are crucial for practical application."
-        },
-        {
-            question: `How does ${topic} apply to real-world scenarios?`,
-            options: ["Through practical implementation", "It has no applications", "Only in theory", "By avoiding use"],
-            correctAnswer: "Through practical implementation",
-            explanation: "Real-world application demonstrates the value of theoretical knowledge."
-        },
-        {
-            question: `What approach works best when learning ${topic}?`,
-            options: ["Hands-on practice", "Reading alone", "Avoiding challenges", "Skipping basics"],
-            correctAnswer: "Hands-on practice",
-            explanation: "Active learning through practice is more effective than passive consumption."
-        },
-        {
-            question: `Why is understanding ${topic} valuable?`,
-            options: ["Builds foundational knowledge", "No real value", "Only for exams", "Just a requirement"],
-            correctAnswer: "Builds foundational knowledge",
-            explanation: "Strong foundations enable advanced learning and application."
-        }
-    ];
-    
-    // Select unique fallback
-    const selected = fallbacks[index % fallbacks.length];
-    selected.difficulty = difficulty;
-    return selected;
-}
-
-// --- 1. CREATE QUIZ ---
-exports.createQuiz = async (req, res) => {
-    try {
-        const { topic, description, totalQuestions, passingScore } = req.body;
-        const userDept = (req.user.department || 'General').toUpperCase();
-
-        const newQuiz = new Quiz({
-            topic: topic.trim(),
-            description, 
-            totalQuestions, 
-            passingScore,
-            createdBy: req.user.id,
-            department: userDept
-        });
-        await newQuiz.save();
-
-        const certName = `Certified: ${topic.trim()}`;
-        const existingEvent = await Event.findOne({ name: certName });
-        
-        if (!existingEvent) {
-            await Event.create({
-                name: certName,
-                date: new Date(),
-                description: `Skill Assessment for ${topic}`,
-                createdBy: req.user.id,
-                department: userDept, 
-                isPublic: false,
-                certificatesIssued: true,
-                certificateConfig: {
-                    collegeName: "K. S. Institute of Technology",
-                    headerDepartment: `DEPARTMENT OF ${userDept}`,
-                    certificateTitle: "CERTIFICATE OF SKILL",
-                    eventType: "Skill Assessment",
-                    customSignatureText: "Examination Authority"
-                }
-            });
-        }
-        res.status(201).json(newQuiz);
-    } catch (error) {
-        console.error('Create Quiz Error:', error);
-        res.status(500).json({ message: "Failed to create quiz: " + error.message });
-    }
-};
-
-// --- 2. GET QUIZZES ---
-exports.getAvailableQuizzes = async (req, res) => {
-    try {
-        const dept = req.user.department ? req.user.department.toUpperCase() : 'GENERAL';
-        const query = { isActive: true };
-        query.$or = [{ department: dept }, { department: 'All' }, { department: 'College' }];
-        
-        const quizzes = await Quiz.find(query).populate('createdBy', 'name');
-
-        const quizzesWithStatus = await Promise.all(quizzes.map(async (quiz) => {
-            const certName = `Certified: ${quiz.topic}`;
-            const hasCert = await Certificate.findOne({ 
-                eventName: certName, 
-                studentEmail: req.user.email.toLowerCase() 
-            });
-            return {
-                ...quiz.toObject(),
-                hasPassed: !!hasCert,
-                certificateId: hasCert ? hasCert.certificateId : null
-            };
-        }));
-
-        res.json(quizzesWithStatus);
-    } catch (error) {
-        console.error('Get Quizzes Error:', error);
-        res.status(500).json({ message: "Failed to fetch quizzes" });
-    }
-};
-
-// --- 3. GET QUIZ DETAILS ---
-exports.getQuizDetails = async (req, res) => {
-    try {
-        const { quizId } = req.params;
-        const quiz = await Quiz.findById(quizId);
-        if (!quiz) return res.status(404).json({ message: "Quiz not found" });
-
-        const certName = `Certified: ${quiz.topic}`;
-        const existingCert = await Certificate.findOne({ 
-            eventName: certName, 
-            studentEmail: req.user.email.toLowerCase() 
-        });
-
-        res.json({
-            topic: quiz.topic,
-            totalQuestions: quiz.totalQuestions,
-            passingScore: quiz.passingScore,
-            hasPassed: !!existingCert,
-            certificateId: existingCert?.certificateId
-        });
-    } catch (error) {
-        console.error('Get Quiz Details Error:', error);
-        res.status(500).json({ message: "Server Error" });
-    }
-};
-
-// --- 4. NEXT QUESTION - MAJOR FIX: Better Uniqueness + Retry Logic ---
-exports.nextQuestion = async (req, res) => {
-    const { quizId, history } = req.body;
-
-    try {
-        const quiz = await Quiz.findById(quizId);
-        if (!quiz) return res.status(404).json({ message: "Quiz not found" });
-
-        const currentQIndex = history ? history.length : 0;
-        
-        // ✅ FIX: Strict boundary check
-        if (currentQIndex >= quiz.totalQuestions) {
-            return res.status(400).json({ 
-                message: "Quiz complete", 
-                shouldEnd: true 
-            });
-        }
-
-        // Difficulty progression
-        let difficulty = 'Easy';
-        if (currentQIndex >= Math.floor(quiz.totalQuestions * 0.7)) difficulty = 'Hard';
-        else if (currentQIndex >= Math.floor(quiz.totalQuestions * 0.3)) difficulty = 'Medium';
-        
-        // Extract previous questions for anti-repetition
-        const previousQuestions = history ? history.map(h => h.questionText.toLowerCase()) : [];
-        
-        // ✅ FIX: Enhanced prompt with stronger anti-repetition
-        const prompt = `Generate ONE unique multiple-choice question about "${quiz.topic}".
-
-CRITICAL ANTI-REPETITION RULES:
-- Do NOT reuse ANY of these previous questions:
-${previousQuestions.length > 0 ? previousQuestions.map((q, i) => `${i+1}. ${q}`).join('\n') : 'None yet'}
-
-- The new question MUST be completely different in:
-  * Topic focus
-  * Question wording
-  * Concept tested
-  * Scenario presented
-
-Difficulty: ${difficulty}
-Question Number: ${currentQIndex + 1} of ${quiz.totalQuestions}
-
-Respond with ONLY valid JSON (no markdown, no explanation):
-{
-  "question": "Your unique question here",
-  "options": ["Option A", "Option B", "Option C", "Option D"],
-  "correctAnswer": "Exact text of correct option",
-  "explanation": "Brief explanation"
-}`;
-
-        let attempts = 0;
-        const MAX_ATTEMPTS = 5;
-
-        // ✅ FIX: Retry loop with better duplicate detection
-        while (attempts < MAX_ATTEMPTS) {
-            attempts++;
+    const loadQuizDetails = async () => {
+        try {
+            console.log(`📚 Loading quiz details for: ${quizId}`);
+            const res = await api.get(`/quiz/${quizId}/details`);
             
-            for (const modelName of MODEL_PRIORITY) {
-                try {
-                    console.log(`🤖 Attempt ${attempts}/${MAX_ATTEMPTS} - Model: ${modelName} (Q${currentQIndex + 1}/${quiz.totalQuestions})`);
-                    
-                    const model = genAI.getGenerativeModel({ model: modelName });
-                    const result = await model.generateContent(prompt);
-                    const response = await result.response;
-                    const text = response.text();
-                    
-                    if (!text) continue;
-
-                    const questionData = JSON.parse(cleanJSON(text));
-                    
-                    // ✅ FIX: Validate question structure
-                    if (!questionData.question || !Array.isArray(questionData.options) || 
-                        questionData.options.length !== 4 || !questionData.correctAnswer) {
-                        console.warn('⚠️ Invalid question structure, retrying...');
-                        continue;
-                    }
-                    
-                    // ✅ FIX: Strict duplicate check (70% threshold)
-                    const newQuestionLower = questionData.question.toLowerCase();
-                    let isDuplicate = false;
-                    
-                    for (const prevQ of previousQuestions) {
-                        const similarity = calculateSimilarity(prevQ, newQuestionLower);
-                        if (similarity > 0.7) {
-                            console.warn(`⚠️ Duplicate detected (${(similarity * 100).toFixed(0)}% match), retrying...`);
-                            isDuplicate = true;
-                            break;
-                        }
-                    }
-                    
-                    if (isDuplicate) continue;
-                    
-                    // ✅ SUCCESS: Unique question generated
-                    questionData.difficulty = difficulty;
-                    console.log(`✅ Unique question generated with ${modelName}`);
-                    return res.json(questionData);
-                    
-                } catch (error) {
-                    console.error(`❌ ${modelName} failed: ${error.message}`);
-                    continue;
-                }
+            if (res.data.hasPassed) {
+                toast.info("You've already passed this quiz!");
+                navigate(`/verify/${res.data.certificateId}`);
+                return;
             }
+            
+            setQuiz(res.data);
+            console.log('✅ Quiz loaded:', res.data.topic);
+        } catch (err) {
+            console.error('❌ Failed to load quiz:', err);
+            setError('Failed to load quiz. Please try again.');
+            toast.error('Could not load quiz');
+        } finally {
+            setLoading(false);
         }
+    };
 
-        // ✅ FALLBACK: Use static unique question
-        console.warn("⚠️ All AI attempts exhausted, using fallback");
-        return res.json(getFallbackQuestion(quiz.topic, difficulty, currentQIndex, previousQuestions));
-
-    } catch (error) {
-        console.error("Critical Error:", error);
-        res.status(500).json({ message: "Internal Server Error" });
-    }
-};
-
-// --- 5. SUBMIT & MINT - MAJOR FIX: Better Progress + Async Processing ---
-exports.submitQuiz = async (req, res) => {
-    const { quizId, score } = req.body;
-    const userId = req.user.id;
-
-    try {
-        console.log(`📊 Quiz Submission: User ${userId}, Score ${score}`);
-        
-        const quiz = await Quiz.findById(quizId);
-        if (!quiz) return res.status(404).json({ message: "Quiz not found" });
-
-        const percentage = (score / quiz.totalQuestions) * 100;
-
-        // ✅ FIX: Failed quiz response (no certificate)
-        if (percentage < quiz.passingScore) {
-            return res.json({ 
-                passed: false, 
-                score: percentage.toFixed(1),
-                message: `Score: ${percentage.toFixed(1)}%. Required: ${quiz.passingScore}%.`,
-                certificateId: null
+    const loadNextQuestion = async () => {
+        try {
+            console.log(`🔄 Loading question ${currentIndex + 1}/${quiz.totalQuestions}...`);
+            
+            const res = await api.post('/quiz/next', {
+                quizId: quizId,
+                history: answers
             });
+
+            // Handle quiz completion
+            if (res.data.shouldEnd) {
+                console.log('✅ All questions answered, submitting...');
+                await submitQuiz();
+                return;
+            }
+
+            setCurrentQuestion(res.data);
+            setSelectedAnswer(null);
+            console.log('✅ Question loaded:', res.data.question.substring(0, 50) + '...');
+            
+        } catch (err) {
+            console.error('❌ Failed to load question:', err);
+            setError('Failed to load question. Please try again.');
+            toast.error('Error loading question');
         }
+    };
 
-        const student = await User.findById(userId);
-        const certName = `Certified: ${quiz.topic}`;
-        const normalizedEmail = student.email.toLowerCase();
+    const handleAnswer = () => {
+        if (!selectedAnswer || !currentQuestion) return;
 
-        // Check for existing certificate
-        const existing = await Certificate.findOne({ 
-            eventName: certName, 
-            studentEmail: normalizedEmail 
-        });
+        const isCorrect = selectedAnswer === currentQuestion.correctAnswer;
         
-        if (existing) {
-            return res.json({ 
-                passed: true, 
-                score: percentage.toFixed(1),
-                certificateId: existing.certificateId,
-                message: "You already have this certificate!" 
+        const newAnswer = {
+            questionText: currentQuestion.question,
+            selectedAnswer: selectedAnswer,
+            correctAnswer: currentQuestion.correctAnswer,
+            isCorrect: isCorrect,
+            explanation: currentQuestion.explanation
+        };
+
+        console.log(`${isCorrect ? '✅ Correct' : '❌ Wrong'} answer for Q${currentIndex + 1}`);
+        
+        setAnswers([...answers, newAnswer]);
+        setCurrentQuestion(null); // Clear current question to trigger next load
+    };
+
+    const submitQuiz = async () => {
+        setSubmitting(true);
+        
+        try {
+            console.log(`📊 Submitting quiz with ${answers.length} answers...`);
+            
+            const correctCount = answers.filter(a => a.isCorrect).length;
+            
+            const res = await api.post('/quiz/submit', {
+                quizId: quizId,
+                score: correctCount
             });
-        }
 
-        // ✅ FIX: IMMEDIATE RESPONSE - Don't wait for minting
-        const certId = `SKILL-${nanoid(8)}`;
-        
-        res.json({ 
-            passed: true, 
-            score: percentage.toFixed(1),
-            certificateId: certId, 
-            message: "Quiz Passed! Certificate is being generated...",
-            processing: true // Flag for frontend to show processing state
-        });
+            console.log('✅ Quiz submitted:', res.data);
+            setResult(res.data);
 
-        // ✅ FIX: Async certificate generation (non-blocking)
-        setImmediate(async () => {
-            try {
-                console.log(`🎓 Background: Issuing certificate for ${student.name}...`);
-                
-                let transactionHash = "PENDING";
-                let tokenId = "PENDING";
-                
-                if (student.walletAddress) {
-                    try {
-                        const hashData = normalizedEmail + new Date() + certName;
-                        const certHash = crypto.createHash('sha256').update(hashData).digest('hex');
-                        const mintResult = await mintNFT(student.walletAddress, certHash);
-                        transactionHash = mintResult.transactionHash;
-                        tokenId = mintResult.tokenId.toString();
-                        console.log(`✅ NFT Minted: Token ${tokenId}`);
-                    } catch (mintError) {
-                        console.error("⚠️ Minting warning:", mintError.message);
-                    }
-                }
-
-                // Save certificate
-                const newCert = new Certificate({
-                    certificateId: certId,
-                    tokenId,
-                    certificateHash: transactionHash,
-                    transactionHash,
-                    studentName: student.name,
-                    studentEmail: normalizedEmail,
-                    eventName: certName,
-                    eventDate: new Date(),
-                    issuedBy: userId,
-                    verificationUrl: `/verify/${certId}`
+            if (res.data.passed) {
+                toast.success('Congratulations! You passed!', {
+                    description: `Score: ${res.data.score}%`
                 });
-                
-                await newCert.save();
-                console.log(`✅ Certificate ${certId} saved to database`);
-                
-                // Send email (non-blocking)
-                sendCertificateIssued(normalizedEmail, student.name, certName, certId)
-                    .catch(e => console.error('Email failed:', e.message));
-
-            } catch (bgError) {
-                console.error('❌ Background certificate generation failed:', bgError);
+            } else {
+                toast.error('Quiz Failed', {
+                    description: `Score: ${res.data.score}% (Need ${quiz.passingScore}%)`
+                });
             }
-        });
+            
+        } catch (err) {
+            console.error('❌ Submit failed:', err);
+            setError('Failed to submit quiz. Please try again.');
+            toast.error('Submission error');
+        } finally {
+            setSubmitting(false);
+        }
+    };
 
-    } catch (error) {
-        console.error('Submit Quiz Error:', error);
-        res.status(500).json({ 
-            message: "Error submitting quiz. Please try again.",
-            error: error.message 
-        });
+    // Loading State
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-muted/40 p-8 flex items-center justify-center">
+                <Card className="max-w-2xl w-full">
+                    <CardContent className="p-12 text-center space-y-4">
+                        <Loader2 className="h-12 w-12 animate-spin text-indigo-600 mx-auto" />
+                        <p className="text-lg font-medium">Loading Quiz...</p>
+                        <div className="space-y-2">
+                            <Skeleton className="h-4 w-full" />
+                            <Skeleton className="h-4 w-3/4 mx-auto" />
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+        );
     }
+
+    // Error State
+    if (error) {
+        return (
+            <div className="min-h-screen bg-muted/40 p-8 flex items-center justify-center">
+                <Card className="max-w-md w-full">
+                    <CardContent className="p-8 text-center space-y-4">
+                        <AlertCircle className="h-12 w-12 text-red-500 mx-auto" />
+                        <h3 className="text-xl font-bold">Error Loading Quiz</h3>
+                        <p className="text-muted-foreground">{error}</p>
+                        <Button onClick={() => navigate('/student/quizzes')}>
+                            Return to Quizzes
+                        </Button>
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
+
+    // Results Screen
+    if (result) {
+        const correctCount = answers.filter(a => a.isCorrect).length;
+        const percentage = parseFloat(result.score);
+        const passed = result.passed;
+
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 dark:from-indigo-950/20 dark:via-purple-950/20 dark:to-pink-950/20 p-8 flex items-center justify-center">
+                <motion.div
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    className="max-w-2xl w-full"
+                >
+                    <Card className={`border-t-4 ${passed ? 'border-green-500' : 'border-red-500'}`}>
+                        <CardHeader className="text-center space-y-4">
+                            <motion.div
+                                initial={{ scale: 0 }}
+                                animate={{ scale: 1 }}
+                                transition={{ delay: 0.2, type: "spring" }}
+                            >
+                                {passed ? (
+                                    <Trophy className="h-20 w-20 text-yellow-500 mx-auto" />
+                                ) : (
+                                    <XCircle className="h-20 w-20 text-red-500 mx-auto" />
+                                )}
+                            </motion.div>
+                            <CardTitle className="text-3xl">
+                                {passed ? 'Quiz Passed! 🎉' : 'Quiz Failed'}
+                            </CardTitle>
+                            <CardDescription className="text-lg">
+                                {result.message}
+                            </CardDescription>
+                        </CardHeader>
+                        
+                        <CardContent className="space-y-6">
+                            {/* Score Display */}
+                            <div className="bg-muted/50 p-6 rounded-xl text-center">
+                                <div className="text-5xl font-black mb-2">
+                                    {correctCount}/{quiz.totalQuestions}
+                                </div>
+                                <div className="text-2xl font-bold text-primary">
+                                    {percentage}%
+                                </div>
+                                <Progress value={percentage} className="mt-4 h-3" />
+                            </div>
+
+                            {/* Certificate Info */}
+                            {passed && result.certificateId && (
+                                <Alert className="bg-green-50 border-green-200">
+                                    <Award className="h-5 w-5 text-green-600" />
+                                    <AlertDescription className="text-green-800">
+                                        Your certificate is being generated! Check your dashboard in a moment.
+                                    </AlertDescription>
+                                </Alert>
+                            )}
+
+                            {/* Action Buttons */}
+                            <div className="flex gap-3">
+                                {passed && result.certificateId ? (
+                                    <Button 
+                                        className="flex-1"
+                                        onClick={() => navigate(`/verify/${result.certificateId}`)}
+                                    >
+                                        <Award className="mr-2 h-4 w-4" />
+                                        View Certificate
+                                    </Button>
+                                ) : (
+                                    <Button 
+                                        className="flex-1"
+                                        onClick={() => window.location.reload()}
+                                    >
+                                        Retry Quiz
+                                    </Button>
+                                )}
+                                <Button 
+                                    variant="outline"
+                                    onClick={() => navigate('/student/quizzes')}
+                                >
+                                    Back to Quizzes
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </motion.div>
+            </div>
+        );
+    }
+
+    // Question Screen
+    if (!currentQuestion && !submitting) {
+        return (
+            <div className="min-h-screen bg-muted/40 p-8 flex items-center justify-center">
+                <Card className="max-w-2xl w-full">
+                    <CardContent className="p-12 text-center">
+                        <Loader2 className="h-12 w-12 animate-spin text-indigo-600 mx-auto mb-4" />
+                        <p className="text-lg">Loading next question...</p>
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
+
+    if (submitting) {
+        return (
+            <div className="min-h-screen bg-muted/40 p-8 flex items-center justify-center">
+                <Card className="max-w-2xl w-full">
+                    <CardContent className="p-12 text-center space-y-4">
+                        <Brain className="h-16 w-16 text-indigo-600 mx-auto animate-pulse" />
+                        <h3 className="text-2xl font-bold">Analyzing Your Answers...</h3>
+                        <p className="text-muted-foreground">Please wait while we process your quiz</p>
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
+
+    const progressPercentage = ((currentIndex + 1) / quiz.totalQuestions) * 100;
+
+    return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50 to-purple-50 dark:from-slate-950 dark:via-indigo-950/20 dark:to-purple-950/20 p-4 md:p-8">
+            <div className="max-w-4xl mx-auto">
+                {/* Header */}
+                <motion.div
+                    initial={{ y: -20, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    className="mb-6"
+                >
+                    <Card className="border-b-4 border-indigo-500">
+                        <CardHeader>
+                            <div className="flex justify-between items-center mb-4">
+                                <CardTitle className="text-2xl flex items-center gap-2">
+                                    <Brain className="h-6 w-6 text-indigo-600" />
+                                    {quiz.topic}
+                                </CardTitle>
+                                <Badge variant="secondary" className="text-lg px-4 py-1">
+                                    {currentIndex + 1} / {quiz.totalQuestions}
+                                </Badge>
+                            </div>
+                            <Progress value={progressPercentage} className="h-2" />
+                        </CardHeader>
+                    </Card>
+                </motion.div>
+
+                {/* Question Card */}
+                <AnimatePresence mode="wait">
+                    {currentQuestion && (
+                        <motion.div
+                            key={currentIndex}
+                            initial={{ x: 50, opacity: 0 }}
+                            animate={{ x: 0, opacity: 1 }}
+                            exit={{ x: -50, opacity: 0 }}
+                            transition={{ duration: 0.3 }}
+                        >
+                            <Card className="shadow-xl">
+                                <CardHeader>
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <Badge className="bg-indigo-100 text-indigo-700">
+                                            Question {currentIndex + 1}
+                                        </Badge>
+                                        {currentQuestion.difficulty && (
+                                            <Badge variant="outline">
+                                                {currentQuestion.difficulty}
+                                            </Badge>
+                                        )}
+                                    </div>
+                                    <CardTitle className="text-xl leading-relaxed">
+                                        {currentQuestion.question}
+                                    </CardTitle>
+                                </CardHeader>
+                                
+                                <CardContent className="space-y-3">
+                                    {currentQuestion.options.map((option, idx) => (
+                                        <motion.button
+                                            key={idx}
+                                            whileHover={{ scale: 1.02 }}
+                                            whileTap={{ scale: 0.98 }}
+                                            onClick={() => setSelectedAnswer(option)}
+                                            className={`w-full p-4 text-left rounded-xl border-2 transition-all ${
+                                                selectedAnswer === option
+                                                    ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30'
+                                                    : 'border-slate-200 hover:border-indigo-300 hover:bg-slate-50'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold ${
+                                                    selectedAnswer === option
+                                                        ? 'border-indigo-500 bg-indigo-500 text-white'
+                                                        : 'border-slate-300'
+                                                }`}>
+                                                    {String.fromCharCode(65 + idx)}
+                                                </div>
+                                                <span className="flex-1 text-base">{option}</span>
+                                            </div>
+                                        </motion.button>
+                                    ))}
+                                </CardContent>
+
+                                <CardContent className="pt-0">
+                                    <Button
+                                        onClick={handleAnswer}
+                                        disabled={!selectedAnswer}
+                                        className="w-full h-12 text-lg"
+                                    >
+                                        {currentIndex + 1 === quiz.totalQuestions ? (
+                                            <>
+                                                <CheckCircle2 className="mr-2 h-5 w-5" />
+                                                Submit Quiz
+                                            </>
+                                        ) : (
+                                            <>
+                                                Next Question
+                                                <Zap className="ml-2 h-5 w-5" />
+                                            </>
+                                        )}
+                                    </Button>
+                                </CardContent>
+                            </Card>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+        </div>
+    );
 };
+
+export default TakeQuizPage;
