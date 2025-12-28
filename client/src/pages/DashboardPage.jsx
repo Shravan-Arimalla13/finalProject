@@ -1,120 +1,31 @@
-// In client/src/pages/DashboardPage.jsx
+// client/src/pages/DashboardPage.jsx - COMPLETE PROFESSIONAL VERSION
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import api from "../api";
-import { BrainCircuit } from "lucide-react";
-import { MapPin, Clock } from "lucide-react";
-// --- SHADCN IMPORTS ---
-import { Button, buttonVariants } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import SmartRecommendations from "../components/SmartRecommendations"; // <-- IMPORT
-import { Alert, AlertDescription } from "@/components/ui/alert-box";
-import { Badge } from "@/components/ui/badge-item";
-import { Label } from "@/components/ui/label"; // <-- Added missing Label import
-import {
-  MoreHorizontal,
-  Sparkles,
-  Award,
-  Download,
-  Search,
-  Share2,
-  ExternalLink,
-  Users,
-  Calendar,
-  Mail,
-  Upload,
-  GraduationCap,
-  Cloud,
-  BarChart,
-} from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { motion } from "framer-motion";
+
+// UI Components
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge-item";
+import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription } from "@/components/ui/alert-box";
+import SmartRecommendations from "../components/SmartRecommendations";
+
+// Icons
 import {
-  ShieldCheck, TrendingUp, Target, ArrowRight,
-  Copy, Check, Briefcase, Trophy
+  Award, Download, ExternalLink, MapPin, Clock, 
+  TrendingUp, Target, Calendar, Mail, Upload, 
+  GraduationCap, BarChart, Users, BrainCircuit,
+  Trophy, Zap, Sparkles, BookOpen, Code,
+  ShieldCheck, ChevronRight, Star
 } from "lucide-react";
 
-// ---
-
-// --- VISUAL CARD COMPONENT ---
-const CertificateVisualCard = ({ cert }) => (
-  <div className="group relative bg-card text-card-foreground rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all duration-300 border">
-    {/* Visual Header */}
-    <div className="h-32 bg-gradient-to-r from-blue-600 to-indigo-700 relative p-4 flex flex-col justify-between">
-      <div className="absolute top-0 right-0 p-2 opacity-10">
-        <Award className="h-24 w-24 text-white" />
-      </div>
-      <Badge className="self-start bg-black/20 hover:bg-black/30 text-white border-none backdrop-blur-sm">
-        {cert.isBlockchainVerified ? "Verified on-chain" : "Pending"}
-      </Badge>
-      <h3 className="text-white font-bold text-lg truncate leading-tight relative z-10">
-        {cert.eventName}
-      </h3>
-    </div>
-
-    {/* Details Body */}
-    <div className="p-4 space-y-3">
-      <div className="flex justify-between text-sm text-muted-foreground">
-        <span>Issued: {new Date(cert.createdAt).toLocaleDateString()}</span>
-      </div>
-
-      {/* Action Buttons */}
-      <div className="grid grid-cols-2 gap-2 pt-2">
-        <a
-          href={`https://finalproject-jq2d.onrender.com/api/certificates/download/${cert.certificateId}`}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Button variant="outline" size="sm" className="w-full">
-            <Download className="h-4 w-4 mr-2" /> PDF
-          </Button>
-        </a>
-        <Link to={`/verify/${cert.certificateId}`}>
-          <Button size="sm" className="w-full">
-            <ExternalLink className="h-4 w-4 mr-2" /> Verify
-          </Button>
-        </Link>
-        {/* NEW BUTTON: Only show if IPFS link exists */}
-        {cert.ipfsUrl && (
-          <a
-            href={cert.ipfsUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="col-span-2"
-          >
-            <Button variant="secondary" size="sm" className="w-full text-xs">
-              <Cloud className="h-3 w-3 mr-2" /> View Permanent Copy (IPFS)
-            </Button>
-          </a>
-        )}
-      </div>
-    </div>
-  </div>
-);
-
-// --- DASHBOARD COMPONENTS ---
-
+// ============================================
+// SUPERADMIN DASHBOARD
+// ============================================
 const SuperAdminDashboard = ({ user }) => {
   const modules = [
     {
@@ -159,7 +70,7 @@ const SuperAdminDashboard = ({ user }) => {
     },
     {
       title: "View Faculty List",
-      desc: "See all registered department admins.",
+      desc: "See all department admins.",
       icon: Users,
       link: "/admin/faculty",
       color: "text-indigo-600",
@@ -169,79 +80,117 @@ const SuperAdminDashboard = ({ user }) => {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold tracking-tight">
-        SuperAdmin Dashboard
-      </h1>
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight mb-2">SuperAdmin Dashboard</h1>
+        <p className="text-muted-foreground">Manage the entire credentialing system</p>
+      </div>
+      
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {modules.map((mod, index) => (
-          <Link to={mod.link} key={index}>
-            <Card className="h-full hover:shadow-lg transition-all cursor-pointer">
-              <CardContent className="p-6 flex flex-col items-center text-center space-y-4">
-                <div
-                  className={`h-16 w-16 rounded-full ${mod.bg} flex items-center justify-center`}
-                >
-                  <mod.icon className={`h-8 w-8 ${mod.color}`} />
-                </div>
-                <div>
-                  <h3 className="font-bold text-lg">{mod.title}</h3>
-                  <p className="text-sm text-muted-foreground mt-2">
-                    {mod.desc}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          </Link>
+          <motion.div
+            key={index}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: index * 0.1 }}
+          >
+            <Link to={mod.link}>
+              <Card className="h-full hover:shadow-lg transition-all cursor-pointer group hover:border-primary">
+                <CardContent className="p-6 flex flex-col items-center text-center space-y-4">
+                  <div className={`h-16 w-16 rounded-full ${mod.bg} flex items-center justify-center group-hover:scale-110 transition-transform`}>
+                    <mod.icon className={`h-8 w-8 ${mod.color}`} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg mb-1">{mod.title}</h3>
+                    <p className="text-sm text-muted-foreground">{mod.desc}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          </motion.div>
         ))}
       </div>
     </div>
   );
 };
 
-// Update FacultyDashboard component
+// ============================================
+// FACULTY DASHBOARD
+// ============================================
 const FacultyDashboard = ({ user }) => (
-  <Card>
-    <CardHeader>
-      <CardTitle>Welcome, Faculty {user.name}</CardTitle>
-      <CardDescription>Department: {user.department}</CardDescription>
-    </CardHeader>
-    <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+  <div className="space-y-6">
+    <div>
+      <h1 className="text-3xl font-bold tracking-tight mb-2">Welcome, {user.name}</h1>
+      <p className="text-muted-foreground">Department: {user.department}</p>
+    </div>
+    
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       <Link to="/events">
-        <Button className="w-full h-24 text-lg" variant="outline">
-          <Calendar className="mr-2 h-6 w-6" /> Manage Events
-        </Button>
+        <Card className="hover:shadow-lg transition-all cursor-pointer group">
+          <CardContent className="p-6 flex items-center gap-4">
+            <div className="h-16 w-16 rounded-full bg-blue-500/10 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <Calendar className="h-8 w-8 text-blue-500" />
+            </div>
+            <div>
+              <h3 className="font-bold text-lg">Manage Events</h3>
+              <p className="text-sm text-muted-foreground">Create and track events</p>
+            </div>
+          </CardContent>
+        </Card>
       </Link>
-      {/* NEW BUTTON */}
+
       <Link to="/faculty/quiz">
-        {" "}
-        {/* NEW CORRECT LINK */}
-        <Button className="w-full h-24 text-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border-indigo-200 shadow-sm">
-          <BrainCircuit className="mr-2 h-6 w-6" /> Create AI Quiz
-        </Button>
+        <Card className="hover:shadow-lg transition-all cursor-pointer group">
+          <CardContent className="p-6 flex items-center gap-4">
+            <div className="h-16 w-16 rounded-full bg-indigo-500/10 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <BrainCircuit className="h-8 w-8 text-indigo-500" />
+            </div>
+            <div>
+              <h3 className="font-bold text-lg">Create AI Quiz</h3>
+              <p className="text-sm text-muted-foreground">AI-powered assessments</p>
+            </div>
+          </CardContent>
+        </Card>
       </Link>
-    </CardContent>
-  </Card>
+    </div>
+  </div>
 );
 
+// ============================================
+// STUDENT DASHBOARD - RESTORED & ENHANCED
+// ============================================
 const StudentDashboard = ({ user }) => {
   const [certificates, setCertificates] = useState([]);
   const [poaps, setPoaps] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({ total: 0, verified: 0, events: 0 });
 
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        const certRes = await api.get("/certificates/my-certificates");
-        const poapRes = await api.get("/poap/my-poaps");
-        setCertificates(certRes.data || []);
-        setPoaps(poapRes.data || []);
-      } catch (err) {
-        console.error("Student dashboard load failed");
-      } finally {
-        setLoading(false);
-      }
-    };
     loadData();
   }, []);
+
+  const loadData = async () => {
+    try {
+      const [certRes, poapRes] = await Promise.all([
+        api.get("/certificates/my-certificates"),
+        api.get("/poap/my-poaps")
+      ]);
+
+      const certs = certRes.data || [];
+      const poapData = poapRes.data || [];
+
+      setCertificates(certs);
+      setPoaps(poapData);
+      setStats({
+        total: certs.length,
+        verified: certs.filter(c => c.isBlockchainVerified).length,
+        events: poapData.length
+      });
+    } catch (err) {
+      console.error("Student dashboard load failed");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -252,135 +201,268 @@ const StudentDashboard = ({ user }) => {
   }
 
   return (
-    <div className="space-y-10">
-      {/* HERO */}
+    <div className="space-y-8">
+      {/* HERO SECTION */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 rounded-3xl p-8 text-white"
+        className="bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 rounded-3xl p-8 text-white relative overflow-hidden"
       >
-        <h1 className="text-3xl font-bold">Welcome back, {user.name}</h1>
-        <p className="opacity-90 mt-1">
-          {user.department} • {user.usn}
-        </p>
-
-        <div className="flex gap-4 mt-4">
-          <Link to="/browse-events" className="underline flex items-center gap-1">
-            <Search className="h-4 w-4" /> Browse Events
-          </Link>
-          <Link to="/profile" className="underline flex items-center gap-1">
-            <Trophy className="h-4 w-4" /> Achievements
-          </Link>
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute inset-0" style={{
+            backgroundImage: "radial-gradient(circle at 2px 2px, white 1px, transparent 0)",
+            backgroundSize: "24px 24px"
+          }} />
+        </div>
+        
+        <div className="relative z-10">
+          <h1 className="text-3xl font-bold mb-2">Welcome back, {user.name}</h1>
+          <p className="opacity-90 mb-4">{user.department} • {user.usn}</p>
+          
+          <div className="flex flex-wrap gap-4 mt-6">
+            <Link to="/browse-events" className="inline-flex items-center gap-2 bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg backdrop-blur-sm transition-all">
+              <Calendar className="h-4 w-4" />
+              Browse Events
+            </Link>
+            <Link to="/profile" className="inline-flex items-center gap-2 bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg backdrop-blur-sm transition-all">
+              <Trophy className="h-4 w-4" />
+              My Achievements
+            </Link>
+          </div>
         </div>
       </motion.div>
 
-      {/* STATS */}
+      {/* STATS GRID */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card>
-          <CardContent className="p-6">
-            <Award className="h-6 w-6 mb-2 text-blue-600" />
-            <p className="text-2xl font-bold">{certificates.length}</p>
-            <p className="text-sm text-muted-foreground">Certificates</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <MapPin className="h-6 w-6 mb-2 text-pink-600" />
-            <p className="text-2xl font-bold">{poaps.length}</p>
-            <p className="text-sm text-muted-foreground">Events Attended</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <TrendingUp className="h-6 w-6 mb-2 text-purple-600" />
-            <p className="text-2xl font-bold">Advanced</p>
-            <p className="text-sm text-muted-foreground">Skill Level</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <Target className="h-6 w-6 mb-2 text-indigo-600" />
-            <p className="text-2xl font-bold">70%</p>
-            <p className="text-sm text-muted-foreground">Career Progress</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* CERTIFICATES */}
-      <div className="space-y-4">
-        <h2 className="text-xl font-bold flex items-center gap-2">
-          <Award className="h-5 w-5 text-blue-600" />
-          My Credentials
-        </h2>
-
-        {certificates.length === 0 ? (
-          <p className="text-muted-foreground">No certificates yet.</p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {certificates.map((cert) => (
-              <Card key={cert._id} className="overflow-hidden">
-                <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-4 text-white">
-                  <h3 className="font-bold truncate">{cert.eventName}</h3>
-                  {cert.isBlockchainVerified && (
-                    <span className="text-xs flex items-center gap-1 mt-1">
-                      <ShieldCheck className="h-3 w-3" /> Verified
-                    </span>
-                  )}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+          <Card className="border-l-4 border-l-blue-500">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground mb-1">Certificates</p>
+                  <p className="text-3xl font-bold">{stats.total}</p>
                 </div>
-                <CardContent className="p-4 space-y-2">
-                  <p className="text-xs text-muted-foreground">
-                    Issued: {new Date(cert.createdAt).toLocaleDateString()}
+                <Award className="h-8 w-8 text-blue-600" />
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+          <Card className="border-l-4 border-l-pink-500">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground mb-1">Events Attended</p>
+                  <p className="text-3xl font-bold">{stats.events}</p>
+                </div>
+                <MapPin className="h-8 w-8 text-pink-600" />
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+          <Card className="border-l-4 border-l-purple-500">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground mb-1">Skill Level</p>
+                  <p className="text-3xl font-bold">
+                    {stats.total >= 10 ? "Advanced" : stats.total >= 5 ? "Intermediate" : "Beginner"}
                   </p>
-                  <Link
-                    to={`/verify/${cert.certificateId}`}
-                    className="text-sm text-primary underline"
-                  >
-                    Verify Certificate
-                  </Link>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
+                </div>
+                <TrendingUp className="h-8 w-8 text-purple-600" />
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
+          <Card className="border-l-4 border-l-indigo-500">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground mb-1">Career Progress</p>
+                  <p className="text-3xl font-bold">{Math.min(100, stats.total * 10)}%</p>
+                </div>
+                <Target className="h-8 w-8 text-indigo-600" />
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
       </div>
 
-      {/* POAPS */}
-      {poaps.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-xl font-bold flex items-center gap-2">
-            <MapPin className="h-5 w-5 text-pink-600" />
-            Event Attendance (POAPs)
-          </h2>
+      {/* AI RECOMMENDATIONS - RESTORED */}
+      <SmartRecommendations />
 
+      {/* CREDENTIALS SECTION */}
+      <Tabs defaultValue="certificates" className="w-full">
+        <TabsList className="grid w-full grid-cols-2 max-w-md">
+          <TabsTrigger value="certificates" className="gap-2">
+            <Award className="h-4 w-4" />
+            Certificates
+          </TabsTrigger>
+          <TabsTrigger value="poaps" className="gap-2">
+            <MapPin className="h-4 w-4" />
+            Attendance
+          </TabsTrigger>
+        </TabsList>
+
+        {/* CERTIFICATES TAB */}
+        <TabsContent value="certificates" className="mt-6">
+          {certificates.length === 0 ? (
+            <Card className="border-dashed">
+              <CardContent className="p-12 text-center">
+                <Award className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                <p className="text-muted-foreground mb-4">No certificates yet</p>
+                <Link to="/browse-events">
+                  <Button>Browse Events</Button>
+                </Link>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {certificates.map((cert) => (
+                <motion.div
+                  key={cert._id}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  whileHover={{ scale: 1.02 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <Card className="overflow-hidden border-t-4 border-t-blue-500 hover:shadow-xl transition-all">
+                    <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-6 text-white">
+                      <div className="flex items-start justify-between mb-3">
+                        <h3 className="font-bold text-lg leading-tight flex-1">
+                          {cert.eventName}
+                        </h3>
+                        {cert.isBlockchainVerified && (
+                          <ShieldCheck className="h-5 w-5 flex-shrink-0 ml-2" />
+                        )}
+                      </div>
+                      <p className="text-sm text-white/80">
+                        Issued {new Date(cert.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex gap-2">
+                        <Link to={`/verify/${cert.certificateId}`} className="flex-1">
+                          <Button variant="outline" size="sm" className="w-full">
+                            <ExternalLink className="h-3 w-3 mr-2" />
+                            Verify
+                          </Button>
+                        </Link>
+                        <a
+                          href={cert.ipfsUrl || `https://finalproject-jq2d.onrender.com/api/certificates/download/${cert.certificateId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1"
+                        >
+                          <Button size="sm" className="w-full">
+                            <Download className="h-3 w-3 mr-2" />
+                            Download
+                          </Button>
+                        </a>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* POAPS TAB */}
+        <TabsContent value="poaps" className="mt-6">
+          {poaps.length === 0 ? (
+            <Card className="border-dashed">
+              <CardContent className="p-12 text-center">
+                <MapPin className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                <p className="text-muted-foreground mb-4">No attendance records yet</p>
+                <Link to="/browse-events">
+                  <Button>Find Events to Attend</Button>
+                </Link>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {poaps.map((poap) => (
+                <Card key={poap._id} className="border-l-4 border-l-pink-500">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between mb-2">
+                      <h4 className="font-bold flex-1">{poap.eventName}</h4>
+                      <Badge variant="outline" className="ml-2">
+                        {poap.attendanceScore}%
+                      </Badge>
+                    </div>
+                    <div className="space-y-1 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-3 w-3" />
+                        {new Date(poap.checkInTime).toLocaleString()}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <MapPin className="h-3 w-3" />
+                        GPS Verified
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+
+      {/* QUICK ACTIONS */}
+      <Card className="bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/20 dark:to-purple-950/20 border-indigo-200">
+        <CardContent className="p-6">
+          <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-indigo-600" />
+            Quick Actions
+          </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {poaps.map((poap) => (
-              <Card key={poap._id} className="border-l-4 border-pink-500">
-                <CardContent className="p-4">
-                  <h4 className="font-bold">{poap.eventName}</h4>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {new Date(poap.checkInTime).toLocaleString()}
-                  </p>
-                </CardContent>
-              </Card>
-            ))}
+            <Link to="/student/quizzes">
+              <Button variant="outline" className="w-full justify-start">
+                <BrainCircuit className="h-4 w-4 mr-2" />
+                Take Skill Quiz
+              </Button>
+            </Link>
+            <Link to="/browse-events">
+              <Button variant="outline" className="w-full justify-start">
+                <Calendar className="h-4 w-4 mr-2" />
+                Upcoming Events
+              </Button>
+            </Link>
+            <Link to="/profile">
+              <Button variant="outline" className="w-full justify-start">
+                <Trophy className="h-4 w-4 mr-2" />
+                View Profile
+              </Button>
+            </Link>
           </div>
-        </div>
-      )}
+        </CardContent>
+      </Card>
     </div>
   );
 };
 
-
-// --- MAIN PAGE WRAPPER ---
+// ============================================
+// MAIN DASHBOARD COMPONENT
+// ============================================
 function DashboardPage() {
   const { user } = useAuth();
 
   const renderDashboard = () => {
-    if (!user)
-      return <div className="p-8 text-center">Loading user data...</div>;
+    if (!user) {
+      return (
+        <div className="p-8 text-center">
+          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto" />
+          <p className="mt-4 text-muted-foreground">Loading...</p>
+        </div>
+      );
+    }
 
     switch (user.role) {
       case "SuperAdmin":
@@ -392,7 +474,6 @@ function DashboardPage() {
       default:
         return (
           <Alert variant="destructive">
-            <AlertTitle>Error</AlertTitle>
             <AlertDescription>Unknown user role.</AlertDescription>
           </Alert>
         );
@@ -400,9 +481,8 @@ function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-muted/40 p-4 md:p-8 animate-in fade-in">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/30 dark:from-slate-950 dark:via-blue-950/10 dark:to-purple-950/10 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
-        {/* REMOVED THE DUPLICATE LOGOUT BUTTON HERE */}
         {renderDashboard()}
       </div>
     </div>
