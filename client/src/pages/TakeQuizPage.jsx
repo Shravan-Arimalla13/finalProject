@@ -1,4 +1,4 @@
-// client/src/pages/TakeQuizPage.jsx - FIXED CLIENT VERSION
+// client/src/pages/TakeQuizPage.jsx - FIXED VERSION
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../api';
@@ -13,7 +13,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert-box";
 import { Skeleton } from "@/components/ui/skeleton";
 import { 
     CheckCircle2, XCircle, Loader2, Award, 
-    Trophy, Clock, Brain, Zap, AlertCircle 
+    Trophy, Clock, Brain, Zap, AlertCircle,
+    Lightbulb
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -30,6 +31,8 @@ const TakeQuizPage = () => {
     const [submitting, setSubmitting] = useState(false);
     const [result, setResult] = useState(null);
     const [error, setError] = useState(null);
+    const [showExplanation, setShowExplanation] = useState(false);
+    const [lastAnswerCorrect, setLastAnswerCorrect] = useState(null);
 
     const currentIndex = answers.length;
 
@@ -40,10 +43,10 @@ const TakeQuizPage = () => {
 
     // Load next question when answers change
     useEffect(() => {
-        if (quiz && !result && answers.length < quiz.totalQuestions) {
+        if (quiz && !result && answers.length < quiz.totalQuestions && !showExplanation) {
             loadNextQuestion();
         }
-    }, [quiz, answers]);
+    }, [quiz, answers, showExplanation]);
 
     const loadQuizDetails = async () => {
         try {
@@ -83,9 +86,16 @@ const TakeQuizPage = () => {
                 return;
             }
 
+            // Validate response data
+            if (!res.data || !res.data.question || !Array.isArray(res.data.options)) {
+                throw new Error('Invalid question data received');
+            }
+
             setCurrentQuestion(res.data);
             setSelectedAnswer(null);
-            console.log('✅ Question loaded:', res.data.question.substring(0, 50) + '...');
+            setShowExplanation(false);
+            setLastAnswerCorrect(null);
+            console.log('✅ Question loaded');
             
         } catch (err) {
             console.error('❌ Failed to load question:', err);
@@ -109,8 +119,13 @@ const TakeQuizPage = () => {
 
         console.log(`${isCorrect ? '✅ Correct' : '❌ Wrong'} answer for Q${currentIndex + 1}`);
         
-        setAnswers([...answers, newAnswer]);
-        setCurrentQuestion(null); // Clear current question to trigger next load
+        setLastAnswerCorrect(isCorrect);
+        setShowExplanation(true);
+        
+        // Add answer to history after a short delay to show feedback
+        setTimeout(() => {
+            setAnswers([...answers, newAnswer]);
+        }, 100);
     };
 
     const submitQuiz = async () => {
@@ -151,7 +166,7 @@ const TakeQuizPage = () => {
     // Loading State
     if (loading) {
         return (
-            <div className="min-h-screen bg-muted/40 p-8 flex items-center justify-center">
+            <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-8 flex items-center justify-center">
                 <Card className="max-w-2xl w-full">
                     <CardContent className="p-12 text-center space-y-4">
                         <Loader2 className="h-12 w-12 animate-spin text-indigo-600 mx-auto" />
@@ -169,7 +184,7 @@ const TakeQuizPage = () => {
     // Error State
     if (error) {
         return (
-            <div className="min-h-screen bg-muted/40 p-8 flex items-center justify-center">
+            <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-8 flex items-center justify-center">
                 <Card className="max-w-md w-full">
                     <CardContent className="p-8 text-center space-y-4">
                         <AlertCircle className="h-12 w-12 text-red-500 mx-auto" />
@@ -220,11 +235,11 @@ const TakeQuizPage = () => {
                         
                         <CardContent className="space-y-6">
                             {/* Score Display */}
-                            <div className="bg-muted/50 p-6 rounded-xl text-center">
+                            <div className="bg-slate-50 dark:bg-slate-900/50 p-6 rounded-xl text-center border">
                                 <div className="text-5xl font-black mb-2">
                                     {correctCount}/{quiz.totalQuestions}
                                 </div>
-                                <div className="text-2xl font-bold text-primary">
+                                <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
                                     {percentage}%
                                 </div>
                                 <Progress value={percentage} className="mt-4 h-3" />
@@ -232,9 +247,9 @@ const TakeQuizPage = () => {
 
                             {/* Certificate Info */}
                             {passed && result.certificateId && (
-                                <Alert className="bg-green-50 border-green-200">
+                                <Alert className="bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800">
                                     <Award className="h-5 w-5 text-green-600" />
-                                    <AlertDescription className="text-green-800">
+                                    <AlertDescription className="text-green-800 dark:text-green-300">
                                         Your certificate is being generated! Check your dashboard in a moment.
                                     </AlertDescription>
                                 </Alert>
@@ -272,28 +287,24 @@ const TakeQuizPage = () => {
         );
     }
 
-    // Question Screen
-    if (!currentQuestion && !submitting) {
+    // Question Screen (Loading or Submitting)
+    if (!currentQuestion || submitting) {
         return (
-            <div className="min-h-screen bg-muted/40 p-8 flex items-center justify-center">
-                <Card className="max-w-2xl w-full">
-                    <CardContent className="p-12 text-center">
-                        <Loader2 className="h-12 w-12 animate-spin text-indigo-600 mx-auto mb-4" />
-                        <p className="text-lg">Loading next question...</p>
-                    </CardContent>
-                </Card>
-            </div>
-        );
-    }
-
-    if (submitting) {
-        return (
-            <div className="min-h-screen bg-muted/40 p-8 flex items-center justify-center">
+            <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-8 flex items-center justify-center">
                 <Card className="max-w-2xl w-full">
                     <CardContent className="p-12 text-center space-y-4">
-                        <Brain className="h-16 w-16 text-indigo-600 mx-auto animate-pulse" />
-                        <h3 className="text-2xl font-bold">Analyzing Your Answers...</h3>
-                        <p className="text-muted-foreground">Please wait while we process your quiz</p>
+                        {submitting ? (
+                            <>
+                                <Brain className="h-16 w-16 text-indigo-600 mx-auto animate-pulse" />
+                                <h3 className="text-2xl font-bold">Analyzing Your Answers...</h3>
+                                <p className="text-muted-foreground">Please wait while we process your quiz</p>
+                            </>
+                        ) : (
+                            <>
+                                <Loader2 className="h-12 w-12 animate-spin text-indigo-600 mx-auto" />
+                                <p className="text-lg">Loading next question...</p>
+                            </>
+                        )}
                     </CardContent>
                 </Card>
             </div>
@@ -303,7 +314,7 @@ const TakeQuizPage = () => {
     const progressPercentage = ((currentIndex + 1) / quiz.totalQuestions) * 100;
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50 to-purple-50 dark:from-slate-950 dark:via-indigo-950/20 dark:to-purple-950/20 p-4 md:p-8">
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/30 dark:from-slate-950 dark:via-indigo-950/10 dark:to-purple-950/10 p-4 md:p-8">
             <div className="max-w-4xl mx-auto">
                 {/* Header */}
                 <motion.div
@@ -329,68 +340,140 @@ const TakeQuizPage = () => {
 
                 {/* Question Card */}
                 <AnimatePresence mode="wait">
-                    {currentQuestion && (
-                        <motion.div
-                            key={currentIndex}
-                            initial={{ x: 50, opacity: 0 }}
-                            animate={{ x: 0, opacity: 1 }}
-                            exit={{ x: -50, opacity: 0 }}
-                            transition={{ duration: 0.3 }}
-                        >
-                            <Card className="shadow-xl">
-                                <CardHeader>
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <Badge className="bg-indigo-100 text-indigo-700">
-                                            Question {currentIndex + 1}
+                    <motion.div
+                        key={`${currentIndex}-${showExplanation ? 'explanation' : 'question'}`}
+                        initial={{ x: 50, opacity: 0 }}
+                        animate={{ x: 0, opacity: 1 }}
+                        exit={{ x: -50, opacity: 0 }}
+                        transition={{ duration: 0.3 }}
+                    >
+                        <Card className="shadow-xl">
+                            <CardHeader>
+                                <div className="flex items-center gap-2 mb-2">
+                                    <Badge className="bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                                        Question {currentIndex + 1}
+                                    </Badge>
+                                    {currentQuestion.difficulty && (
+                                        <Badge variant="outline">
+                                            {currentQuestion.difficulty}
                                         </Badge>
-                                        {currentQuestion.difficulty && (
-                                            <Badge variant="outline">
-                                                {currentQuestion.difficulty}
-                                            </Badge>
-                                        )}
-                                    </div>
-                                    <CardTitle className="text-xl leading-relaxed">
-                                        {currentQuestion.question}
-                                    </CardTitle>
-                                </CardHeader>
-                                
-                                <CardContent className="space-y-3">
-                                    {currentQuestion.options.map((option, idx) => (
+                                    )}
+                                </div>
+                                <CardTitle className="text-xl leading-relaxed">
+                                    {currentQuestion.question}
+                                </CardTitle>
+                            </CardHeader>
+                            
+                            <CardContent className="space-y-3">
+                                {/* Options */}
+                                {currentQuestion.options && currentQuestion.options.map((option, idx) => {
+                                    const isSelected = selectedAnswer === option;
+                                    const isCorrect = option === currentQuestion.correctAnswer;
+                                    const showFeedback = showExplanation;
+
+                                    return (
                                         <motion.button
-                                            key={idx}
-                                            whileHover={{ scale: 1.02 }}
-                                            whileTap={{ scale: 0.98 }}
-                                            onClick={() => setSelectedAnswer(option)}
+                                            key={`${currentIndex}-${idx}`}
+                                            whileHover={{ scale: showFeedback ? 1 : 1.02 }}
+                                            whileTap={{ scale: showFeedback ? 1 : 0.98 }}
+                                            onClick={() => !showFeedback && setSelectedAnswer(option)}
+                                            disabled={showFeedback}
                                             className={`w-full p-4 text-left rounded-xl border-2 transition-all ${
-                                                selectedAnswer === option
+                                                showFeedback
+                                                    ? isCorrect
+                                                        ? 'border-green-500 bg-green-50 dark:bg-green-950/30'
+                                                        : isSelected
+                                                        ? 'border-red-500 bg-red-50 dark:bg-red-950/30'
+                                                        : 'border-slate-200 dark:border-slate-700 opacity-50'
+                                                    : isSelected
                                                     ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30'
-                                                    : 'border-slate-200 hover:border-indigo-300 hover:bg-slate-50'
+                                                    : 'border-slate-200 dark:border-slate-700 hover:border-indigo-300 hover:bg-slate-50 dark:hover:bg-slate-800'
                                             }`}
                                         >
                                             <div className="flex items-center gap-3">
-                                                <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold ${
-                                                    selectedAnswer === option
+                                                <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-sm ${
+                                                    showFeedback
+                                                        ? isCorrect
+                                                            ? 'border-green-500 bg-green-500 text-white'
+                                                            : isSelected
+                                                            ? 'border-red-500 bg-red-500 text-white'
+                                                            : 'border-slate-300 dark:border-slate-600'
+                                                        : isSelected
                                                         ? 'border-indigo-500 bg-indigo-500 text-white'
-                                                        : 'border-slate-300'
+                                                        : 'border-slate-300 dark:border-slate-600'
                                                 }`}>
-                                                    {String.fromCharCode(65 + idx)}
+                                                    {showFeedback ? (
+                                                        isCorrect ? (
+                                                            <CheckCircle2 className="h-5 w-5" />
+                                                        ) : isSelected ? (
+                                                            <XCircle className="h-5 w-5" />
+                                                        ) : (
+                                                            String.fromCharCode(65 + idx)
+                                                        )
+                                                    ) : (
+                                                        String.fromCharCode(65 + idx)
+                                                    )}
                                                 </div>
                                                 <span className="flex-1 text-base">{option}</span>
                                             </div>
                                         </motion.button>
-                                    ))}
-                                </CardContent>
+                                    );
+                                })}
 
-                                <CardContent className="pt-0">
+                                {/* Explanation */}
+                                {showExplanation && currentQuestion.explanation && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        className={`mt-4 p-4 rounded-lg border-2 ${
+                                            lastAnswerCorrect
+                                                ? 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800'
+                                                : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800'
+                                        }`}
+                                    >
+                                        <div className="flex items-start gap-2">
+                                            <Lightbulb className={`h-5 w-5 flex-shrink-0 mt-0.5 ${
+                                                lastAnswerCorrect ? 'text-green-600' : 'text-amber-600'
+                                            }`} />
+                                            <div>
+                                                <p className={`font-semibold mb-1 ${
+                                                    lastAnswerCorrect 
+                                                        ? 'text-green-800 dark:text-green-300' 
+                                                        : 'text-amber-800 dark:text-amber-300'
+                                                }`}>
+                                                    {lastAnswerCorrect ? '✓ Correct!' : '✗ Incorrect'}
+                                                </p>
+                                                <p className="text-sm text-slate-700 dark:text-slate-300">
+                                                    {currentQuestion.explanation}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </CardContent>
+
+                            <CardContent className="pt-0">
+                                {!showExplanation ? (
                                     <Button
                                         onClick={handleAnswer}
                                         disabled={!selectedAnswer}
                                         className="w-full h-12 text-lg"
                                     >
+                                        Submit Answer
+                                        <Zap className="ml-2 h-5 w-5" />
+                                    </Button>
+                                ) : (
+                                    <Button
+                                        onClick={() => {
+                                            setShowExplanation(false);
+                                            setSelectedAnswer(null);
+                                        }}
+                                        className="w-full h-12 text-lg"
+                                    >
                                         {currentIndex + 1 === quiz.totalQuestions ? (
                                             <>
                                                 <CheckCircle2 className="mr-2 h-5 w-5" />
-                                                Submit Quiz
+                                                Finish Quiz
                                             </>
                                         ) : (
                                             <>
@@ -399,10 +482,10 @@ const TakeQuizPage = () => {
                                             </>
                                         )}
                                     </Button>
-                                </CardContent>
-                            </Card>
-                        </motion.div>
-                    )}
+                                )}
+                            </CardContent>
+                        </Card>
+                    </motion.div>
                 </AnimatePresence>
             </div>
         </div>
