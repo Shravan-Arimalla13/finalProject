@@ -1,70 +1,23 @@
+// client/src/pages/ProfilePage.jsx - COMPLETE VERSION
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Link } from 'react-router-dom';
+import api from '../api';
+import { useAuth } from '../context/AuthContext';
 import { 
   Trophy, Medal, Star, Share2, Download, ExternalLink, 
   ShieldCheck, Award, MapPin, Calendar, Clock, 
   TrendingUp, Zap, Target, Sparkles, ChevronRight,
   Code, BookOpen, Briefcase, GraduationCap,
-  Copy, Check, Github, Linkedin, Twitter, Mail
+  Copy, Check, Github, Linkedin, Twitter, Mail, Edit2, Save, X
 } from "lucide-react";
-
-// Mock Data (replace with actual API calls)
-const mockUser = {
-  name: "Alex Johnson",
-  email: "alex.johnson@college.edu",
-  department: "Computer Science",
-  usn: "1CS22CS001",
-  semester: "6th",
-  avatar: "https://api.dicebear.com/7.x/initials/svg?seed=Alex Johnson",
-  joinDate: "2022-08-15",
-  walletAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb5"
-};
-
-const mockCertificates = [
-  {
-    _id: "1",
-    eventName: "Full-Stack Web Development Bootcamp",
-    eventDate: "2024-11-15",
-    certificateId: "CERT-FS2024-001",
-    isBlockchainVerified: true,
-    skills: ["React", "Node.js", "MongoDB"],
-    issuer: "Tech Academy",
-    transactionHash: "0xabc123..."
-  },
-  {
-    _id: "2", 
-    eventName: "AI & Machine Learning Workshop",
-    eventDate: "2024-10-20",
-    certificateId: "CERT-AI2024-002",
-    isBlockchainVerified: true,
-    skills: ["Python", "TensorFlow", "Neural Networks"],
-    issuer: "AI Institute",
-    transactionHash: "0xdef456..."
-  },
-  {
-    _id: "3",
-    eventName: "Blockchain Developer Certification",
-    eventDate: "2024-09-10",
-    certificateId: "CERT-BC2024-003", 
-    isBlockchainVerified: true,
-    skills: ["Solidity", "Smart Contracts", "Web3"],
-    issuer: "Blockchain Academy",
-    transactionHash: "0xghi789..."
-  }
-];
-
-const mockPOAPs = [
-  { _id: "1", eventName: "DevCon 2024", checkInTime: "2024-11-01T10:30:00", attendanceScore: 100 },
-  { _id: "2", eventName: "Hackathon Finals", checkInTime: "2024-10-15T09:00:00", attendanceScore: 95 }
-];
-
-const mockStats = {
-  totalCerts: 8,
-  verifiedCerts: 8,
-  eventsAttended: 12,
-  skillsAcquired: 24,
-  avgScore: 94
-};
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge-item";
+import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
 
 const getRank = (count) => {
   if (count >= 20) return { name: "Legend", color: "from-purple-500 to-pink-500", icon: Trophy, level: 5 };
@@ -75,32 +28,157 @@ const getRank = (count) => {
 };
 
 const ProfilePage = () => {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
+  const [loading, setLoading] = useState(true);
+  const [certificates, setCertificates] = useState([]);
+  const [poaps, setPoaps] = useState([]);
   const [copiedWallet, setCopiedWallet] = useState(false);
   const [copiedCert, setCopiedCert] = useState(null);
   
-  const rank = getRank(mockStats.totalCerts);
-  const RankIcon = rank.icon;
-  const nextRankAt = rank.level === 5 ? null : [2, 5, 10, 20][rank.level];
-  const progressToNext = nextRankAt ? ((mockStats.totalCerts / nextRankAt) * 100) : 100;
+  // Social links state
+  const [socialLinks, setSocialLinks] = useState({
+    linkedin: '',
+    github: '',
+    twitter: '',
+    email: user?.email || ''
+  });
+  const [editingSocial, setEditingSocial] = useState(false);
+  const [tempSocialLinks, setTempSocialLinks] = useState({...socialLinks});
+
+  useEffect(() => {
+    if (user) {
+      loadProfileData();
+      // Load saved social links from localStorage
+      const savedLinks = localStorage.getItem(`social_links_${user.id}`);
+      if (savedLinks) {
+        const parsed = JSON.parse(savedLinks);
+        setSocialLinks(parsed);
+        setTempSocialLinks(parsed);
+      } else {
+        setSocialLinks(prev => ({ ...prev, email: user.email }));
+        setTempSocialLinks(prev => ({ ...prev, email: user.email }));
+      }
+    }
+  }, [user]);
+
+  const loadProfileData = async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch real certificates
+      const certRes = await api.get('/certificates/my-certificates');
+      setCertificates(certRes.data || []);
+      
+      // Fetch real POAPs
+      const poapRes = await api.get('/poap/my-poaps');
+      setPoaps(poapRes.data || []);
+      
+      console.log('✅ Profile data loaded:', { 
+        certificates: certRes.data?.length, 
+        poaps: poapRes.data?.length 
+      });
+    } catch (error) {
+      console.error('Failed to load profile data:', error);
+      toast.error('Failed to load profile data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveSocialLinks = () => {
+    setSocialLinks(tempSocialLinks);
+    localStorage.setItem(`social_links_${user.id}`, JSON.stringify(tempSocialLinks));
+    setEditingSocial(false);
+    toast.success('Social links updated!');
+  };
+
+  const handleCancelEdit = () => {
+    setTempSocialLinks(socialLinks);
+    setEditingSocial(false);
+  };
+
+  const openSocialLink = (platform) => {
+    const urls = {
+      linkedin: socialLinks.linkedin?.startsWith('http') 
+        ? socialLinks.linkedin 
+        : `https://linkedin.com/in/${socialLinks.linkedin}`,
+      github: socialLinks.github?.startsWith('http') 
+        ? socialLinks.github 
+        : `https://github.com/${socialLinks.github}`,
+      twitter: socialLinks.twitter?.startsWith('http') 
+        ? socialLinks.twitter 
+        : `https://twitter.com/${socialLinks.twitter}`,
+      email: `mailto:${socialLinks.email}`
+    };
+    
+    if (socialLinks[platform]) {
+      window.open(urls[platform], '_blank');
+    } else {
+      toast.info(`Add your ${platform} profile first!`);
+      setEditingSocial(true);
+    }
+  };
 
   const copyToClipboard = (text, type) => {
     navigator.clipboard.writeText(text);
     if (type === 'wallet') {
       setCopiedWallet(true);
       setTimeout(() => setCopiedWallet(false), 2000);
+      toast.success('Wallet address copied!');
     } else {
       setCopiedCert(text);
       setTimeout(() => setCopiedCert(null), 2000);
+      toast.success('Certificate ID copied!');
     }
   };
 
   const shareCredential = (cert) => {
-    const shareText = `I just earned a verified blockchain credential for ${cert.eventName}! 🎓 Verify it here:`;
-    const verifyUrl = `https://your-domain.com/verify/${cert.certificateId}`;
-    const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(verifyUrl)}`;
-    window.open(linkedinUrl, '_blank');
+    const shareText = `I just earned a verified blockchain credential for ${cert.eventName}! 🎓`;
+    const verifyUrl = `${window.location.origin}/verify/${cert.certificateId}`;
+    
+    if (navigator.share) {
+      navigator.share({
+        title: 'My Certificate',
+        text: shareText,
+        url: verifyUrl
+      });
+    } else {
+      const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(verifyUrl)}`;
+      window.open(linkedinUrl, '_blank');
+    }
   };
+
+  // Calculate real stats
+  const stats = {
+    totalCerts: certificates.length,
+    verifiedCerts: certificates.filter(c => c.isBlockchainVerified !== false).length,
+    eventsAttended: poaps.length,
+    skillsAcquired: [...new Set(certificates.flatMap(c => 
+      [c.eventName.split(' ')[0], c.eventName.split(' ')[1]].filter(Boolean)
+    ))].length || certificates.length * 2,
+    avgScore: poaps.length > 0 
+      ? Math.round(poaps.reduce((sum, p) => sum + (p.attendanceScore || 100), 0) / poaps.length)
+      : 100
+  };
+
+  const rank = getRank(stats.totalCerts);
+  const RankIcon = rank.icon;
+  const nextRankAt = rank.level === 5 ? null : [2, 5, 10, 20][rank.level];
+  const progressToNext = nextRankAt ? ((stats.totalCerts / nextRankAt) * 100) : 100;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/30 dark:from-slate-950 dark:via-blue-950/10 dark:to-purple-950/10 p-4 md:p-8">
+        <div className="max-w-7xl mx-auto space-y-6">
+          <Skeleton className="h-64 w-full rounded-3xl" />
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            {[1,2,3,4,5].map(i => <Skeleton key={i} className="h-32 rounded-2xl" />)}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/30 dark:from-slate-950 dark:via-blue-950/10 dark:to-purple-950/10 p-4 md:p-8">
@@ -112,7 +190,6 @@ const ProfilePage = () => {
           animate={{ opacity: 1, y: 0 }}
           className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 p-8 text-white shadow-2xl"
         >
-          {/* Animated Background Pattern */}
           <div className="absolute inset-0 opacity-10">
             <div className="absolute inset-0" style={{
               backgroundImage: "radial-gradient(circle at 2px 2px, white 1px, transparent 0)",
@@ -122,18 +199,14 @@ const ProfilePage = () => {
 
           <div className="relative z-10 flex flex-col md:flex-row items-center gap-6">
             {/* Avatar */}
-            <motion.div 
-              whileHover={{ scale: 1.05 }}
-              className="relative"
-            >
+            <motion.div whileHover={{ scale: 1.05 }} className="relative">
               <div className="h-32 w-32 rounded-full border-4 border-white/30 overflow-hidden shadow-2xl bg-white/10 backdrop-blur-sm">
                 <img 
-                  src={mockUser.avatar} 
-                  alt={mockUser.name}
+                  src={`https://api.dicebear.com/7.x/initials/svg?seed=${user?.name}`}
+                  alt={user?.name}
                   className="h-full w-full object-cover"
                 />
               </div>
-              {/* Rank Badge */}
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
@@ -152,7 +225,7 @@ const ProfilePage = () => {
                 transition={{ delay: 0.1 }}
                 className="text-4xl font-bold mb-2"
               >
-                {mockUser.name}
+                {user?.name}
               </motion.h1>
               <motion.div
                 initial={{ opacity: 0, x: -20 }}
@@ -162,11 +235,11 @@ const ProfilePage = () => {
               >
                 <div className="flex items-center gap-2 bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full">
                   <GraduationCap className="h-4 w-4" />
-                  <span className="text-sm font-medium">{mockUser.department}</span>
+                  <span className="text-sm font-medium">{user?.department}</span>
                 </div>
                 <div className="flex items-center gap-2 bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full">
                   <BookOpen className="h-4 w-4" />
-                  <span className="text-sm font-medium">Semester {mockUser.semester}</span>
+                  <span className="text-sm font-medium">Semester {user?.semester || 'N/A'}</span>
                 </div>
                 <div className="flex items-center gap-2 bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full">
                   <Trophy className="h-4 w-4" />
@@ -175,25 +248,27 @@ const ProfilePage = () => {
               </motion.div>
 
               {/* Wallet Address */}
-              <motion.div
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.3 }}
-                className="flex items-center gap-2 justify-center md:justify-start"
-              >
-                <div className="bg-white/10 backdrop-blur-sm px-3 py-2 rounded-lg flex items-center gap-2 group">
-                  <ShieldCheck className="h-4 w-4" />
-                  <span className="font-mono text-sm">
-                    {mockUser.walletAddress.slice(0, 6)}...{mockUser.walletAddress.slice(-4)}
-                  </span>
-                  <button
-                    onClick={() => copyToClipboard(mockUser.walletAddress, 'wallet')}
-                    className="p-1 hover:bg-white/20 rounded transition-colors"
-                  >
-                    {copiedWallet ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  </button>
-                </div>
-              </motion.div>
+              {user?.walletAddress && (
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="flex items-center gap-2 justify-center md:justify-start"
+                >
+                  <div className="bg-white/10 backdrop-blur-sm px-3 py-2 rounded-lg flex items-center gap-2 group">
+                    <ShieldCheck className="h-4 w-4" />
+                    <span className="font-mono text-sm">
+                      {user.walletAddress.slice(0, 6)}...{user.walletAddress.slice(-4)}
+                    </span>
+                    <button
+                      onClick={() => copyToClipboard(user.walletAddress, 'wallet')}
+                      className="p-1 hover:bg-white/20 rounded transition-colors"
+                    >
+                      {copiedWallet ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </motion.div>
+              )}
             </div>
 
             {/* Social Links */}
@@ -201,17 +276,46 @@ const ProfilePage = () => {
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.4 }}
-              className="flex gap-2"
+              className="flex flex-col gap-2"
             >
-              <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }} className="p-3 bg-white/20 backdrop-blur-sm rounded-full hover:bg-white/30 transition-colors">
-                <Linkedin className="h-5 w-5" />
-              </motion.button>
-              <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }} className="p-3 bg-white/20 backdrop-blur-sm rounded-full hover:bg-white/30 transition-colors">
-                <Github className="h-5 w-5" />
-              </motion.button>
-              <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }} className="p-3 bg-white/20 backdrop-blur-sm rounded-full hover:bg-white/30 transition-colors">
-                <Mail className="h-5 w-5" />
-              </motion.button>
+              <div className="flex gap-2">
+                <motion.button 
+                  whileHover={{ scale: 1.1 }} 
+                  whileTap={{ scale: 0.95 }} 
+                  onClick={() => openSocialLink('linkedin')}
+                  className="p-3 bg-white/20 backdrop-blur-sm rounded-full hover:bg-white/30 transition-colors"
+                  title={socialLinks.linkedin || 'Add LinkedIn'}
+                >
+                  <Linkedin className="h-5 w-5" />
+                </motion.button>
+                <motion.button 
+                  whileHover={{ scale: 1.1 }} 
+                  whileTap={{ scale: 0.95 }} 
+                  onClick={() => openSocialLink('github')}
+                  className="p-3 bg-white/20 backdrop-blur-sm rounded-full hover:bg-white/30 transition-colors"
+                  title={socialLinks.github || 'Add GitHub'}
+                >
+                  <Github className="h-5 w-5" />
+                </motion.button>
+                <motion.button 
+                  whileHover={{ scale: 1.1 }} 
+                  whileTap={{ scale: 0.95 }} 
+                  onClick={() => openSocialLink('email')}
+                  className="p-3 bg-white/20 backdrop-blur-sm rounded-full hover:bg-white/30 transition-colors"
+                  title={socialLinks.email}
+                >
+                  <Mail className="h-5 w-5" />
+                </motion.button>
+              </div>
+              <Button
+                onClick={() => setEditingSocial(true)}
+                variant="ghost"
+                size="sm"
+                className="bg-white/10 hover:bg-white/20 text-white text-xs"
+              >
+                <Edit2 className="h-3 w-3 mr-1" />
+                Edit Links
+              </Button>
             </motion.div>
           </div>
 
@@ -225,7 +329,7 @@ const ProfilePage = () => {
             >
               <div className="flex justify-between text-sm mb-2">
                 <span className="font-medium">Progress to {["Intermediate", "Advanced", "Expert", "Legend"][rank.level]}</span>
-                <span className="font-mono">{mockStats.totalCerts}/{nextRankAt}</span>
+                <span className="font-mono">{stats.totalCerts}/{nextRankAt}</span>
               </div>
               <div className="h-3 bg-white/20 rounded-full overflow-hidden backdrop-blur-sm">
                 <motion.div
@@ -239,14 +343,100 @@ const ProfilePage = () => {
           )}
         </motion.div>
 
+        {/* Social Links Edit Modal */}
+        <AnimatePresence>
+          {editingSocial && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+              onClick={() => handleCancelEdit()}
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-md w-full shadow-2xl"
+              >
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-bold">Edit Social Links</h3>
+                  <button
+                    onClick={handleCancelEdit}
+                    className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium flex items-center gap-2 mb-2">
+                      <Linkedin className="h-4 w-4 text-blue-600" />
+                      LinkedIn Profile
+                    </label>
+                    <Input
+                      placeholder="username or full URL"
+                      value={tempSocialLinks.linkedin}
+                      onChange={(e) => setTempSocialLinks({...tempSocialLinks, linkedin: e.target.value})}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium flex items-center gap-2 mb-2">
+                      <Github className="h-4 w-4" />
+                      GitHub Profile
+                    </label>
+                    <Input
+                      placeholder="username or full URL"
+                      value={tempSocialLinks.github}
+                      onChange={(e) => setTempSocialLinks({...tempSocialLinks, github: e.target.value})}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium flex items-center gap-2 mb-2">
+                      <Twitter className="h-4 w-4 text-blue-400" />
+                      Twitter/X Profile
+                    </label>
+                    <Input
+                      placeholder="username or full URL"
+                      value={tempSocialLinks.twitter}
+                      onChange={(e) => setTempSocialLinks({...tempSocialLinks, twitter: e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-3 mt-6">
+                  <Button
+                    onClick={handleSaveSocialLinks}
+                    className="flex-1"
+                  >
+                    <Save className="h-4 w-4 mr-2" />
+                    Save
+                  </Button>
+                  <Button
+                    onClick={handleCancelEdit}
+                    variant="outline"
+                    className="flex-1"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Stats Grid */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           {[
-            { label: "Certificates", value: mockStats.totalCerts, icon: Award, color: "blue" },
-            { label: "Events", value: mockStats.eventsAttended, icon: MapPin, color: "purple" },
-            { label: "Skills", value: mockStats.skillsAcquired, icon: Code, color: "green" },
-            { label: "Avg Score", value: `${mockStats.avgScore}%`, icon: TrendingUp, color: "orange" },
-            { label: "Verified", value: mockStats.verifiedCerts, icon: ShieldCheck, color: "pink" }
+            { label: "Certificates", value: stats.totalCerts, icon: Award, color: "blue" },
+            { label: "Events", value: stats.eventsAttended, icon: MapPin, color: "purple" },
+            { label: "Skills", value: stats.skillsAcquired, icon: Code, color: "green" },
+            { label: "Avg Score", value: `${stats.avgScore}%`, icon: TrendingUp, color: "orange" },
+            { label: "Verified", value: stats.verifiedCerts, icon: ShieldCheck, color: "pink" }
           ].map((stat, i) => (
             <motion.div
               key={i}
@@ -293,6 +483,7 @@ const ProfilePage = () => {
 
           <div className="p-6">
             <AnimatePresence mode="wait">
+              {/* OVERVIEW TAB */}
               {activeTab === 'overview' && (
                 <motion.div
                   key="overview"
@@ -301,61 +492,59 @@ const ProfilePage = () => {
                   exit={{ opacity: 0, y: -20 }}
                   className="space-y-6"
                 >
-                  {/* Recent Achievements */}
                   <div>
                     <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
                       <Sparkles className="h-5 w-5 text-yellow-500" />
                       Recent Achievements
                     </h3>
-                    <div className="grid md:grid-cols-2 gap-4">
-                      {mockCertificates.slice(0, 2).map((cert) => (
-                        <motion.div
-                          key={cert._id}
-                          whileHover={{ scale: 1.02 }}
-                          className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-gradient-to-br from-slate-50 to-white dark:from-slate-800 dark:to-slate-900"
-                        >
-                          <div className="flex items-start justify-between mb-3">
-                            <Award className="h-8 w-8 text-blue-500" />
-                            <ShieldCheck className="h-5 w-5 text-green-500" />
-                          </div>
-                          <h4 className="font-bold mb-1 line-clamp-1">{cert.eventName}</h4>
-                          <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
-                            {new Date(cert.eventDate).toLocaleDateString()}
-                          </p>
-                          <div className="flex gap-2">
-                            <button className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
-                              View
-                            </button>
-                            <button className="p-2 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                              <Share2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </motion.div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Skills Overview */}
-                  <div>
-                    <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
-                      <Code className="h-5 w-5 text-green-500" />
-                      Skills Acquired
-                    </h3>
-                    <div className="flex flex-wrap gap-2">
-                      {["React", "Node.js", "Python", "Solidity", "AI/ML", "Blockchain", "Web3", "Docker"].map((skill) => (
-                        <motion.div
-                          key={skill}
-                          whileHover={{ scale: 1.05 }}
-                          className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-full text-sm font-medium shadow-lg"
-                        >
-                          {skill}
-                        </motion.div>
-                      ))}
-                    </div>
+                    {certificates.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Award className="h-12 w-12 mx-auto mb-2 opacity-20" />
+                        <p>No certificates yet. Start earning by attending events!</p>
+                        <Link to="/browse-events" className="mt-4 inline-block">
+                          <Button>Browse Events</Button>
+                        </Link>
+                      </div>
+                    ) : (
+                      <div className="grid md:grid-cols-2 gap-4">
+                        {certificates.slice(0, 2).map((cert) => (
+                          <motion.div
+                            key={cert._id}
+                            whileHover={{ scale: 1.02 }}
+                            className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-gradient-to-br from-slate-50 to-white dark:from-slate-800 dark:to-slate-900"
+                          >
+                            <div className="flex items-start justify-between mb-3">
+                              <Award className="h-8 w-8 text-blue-500" />
+                              {cert.isBlockchainVerified !== false && (
+                                <ShieldCheck className="h-5 w-5 text-green-500" />
+                              )}
+                            </div>
+                            <h4 className="font-bold mb-1 line-clamp-1">{cert.eventName}</h4>
+                            <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+                              {new Date(cert.eventDate || cert.createdAt).toLocaleDateString()}
+                            </p>
+                            <div className="flex gap-2">
+                              <Link to={`/verify/${cert.certificateId}`} className="flex-1">
+                                <button className="w-full px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+                                  View
+                                </button>
+                              </Link>
+                              <button 
+                                onClick={() => shareCredential(cert)}
+                                className="p-2 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                              >
+                                <Share2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               )}
 
+              {/* CERTIFICATES TAB */}
               {activeTab === 'certificates' && (
                 <motion.div
                   key="certificates"
@@ -364,67 +553,81 @@ const ProfilePage = () => {
                   exit={{ opacity: 0, y: -20 }}
                   className="grid md:grid-cols-2 lg:grid-cols-3 gap-4"
                 >
-                  {mockCertificates.map((cert, i) => (
-                    <motion.div
-                      key={cert._id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.1 }}
-                      whileHover={{ y: -5 }}
-                      className="group relative bg-white dark:bg-slate-900 rounded-2xl border-2 border-slate-200 dark:border-slate-800 overflow-hidden shadow-lg hover:shadow-2xl transition-all"
-                    >
-                      {/* Gradient Header */}
-                      <div className="h-32 bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 relative">
-                        <div className="absolute inset-0 bg-black/20" />
-                        <div className="absolute top-4 right-4">
-                          <ShieldCheck className="h-6 w-6 text-white" />
+                  {certificates.length === 0 ? (
+                    <div className="col-span-full text-center py-12">
+                      <Award className="h-16 w-16 mx-auto mb-4 text-slate-300 dark:text-slate-700" />
+                      <p className="text-slate-600 dark:text-slate-400 mb-4">No certificates earned yet</p>
+                      <Link to="/browse-events">
+                        <Button>Browse Events</Button>
+                      </Link>
+                    </div>
+                  ) : (
+                    certificates.map((cert, i) => (
+                      <motion.div
+                        key={cert._id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.1 }}
+                        whileHover={{ y: -5 }}
+                        className="group relative bg-white dark:bg-slate-900 rounded-2xl border-2 border-slate-200 dark:border-slate-800 overflow-hidden shadow-lg hover:shadow-2xl transition-all"
+                      >
+                        <div className="h-32 bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 relative">
+                          <div className="absolute inset-0 bg-black/20" />
+                          {cert.isBlockchainVerified !== false && (
+                            <div className="absolute top-4 right-4">
+                              <ShieldCheck className="h-6 w-6 text-white" />
+                            </div>
+                          )}
+                          <div className="absolute bottom-4 left-4 right-4">
+                            <h4 className="font-bold text-white line-clamp-2 text-sm">
+                              {cert.eventName}
+                            </h4>
+                          </div>
                         </div>
-                        <div className="absolute bottom-4 left-4 right-4">
-                          <h4 className="font-bold text-white line-clamp-2 text-sm">
-                            {cert.eventName}
-                          </h4>
-                        </div>
-                      </div>
 
-                      {/* Content */}
-                      <div className="p-4 space-y-3">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-slate-600 dark:text-slate-400">Issued</span>
-                          <span className="font-medium">{new Date(cert.eventDate).toLocaleDateString()}</span>
-                        </div>
-
-                        <div className="flex flex-wrap gap-1">
-                          {cert.skills.slice(0, 3).map((skill) => (
-                            <span key={skill} className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-xs">
-                              {skill}
+                        <div className="p-4 space-y-3">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-slate-600 dark:text-slate-400">Issued</span>
+                            <span className="font-medium">
+                              {new Date(cert.eventDate || cert.createdAt).toLocaleDateString()}
                             </span>
-                          ))}
-                        </div>
+                          </div>
 
-                        <div className="flex gap-2 pt-2">
-                          <button className="flex-1 px-3 py-2 bg-slate-100 dark:bg-slate-800 rounded-lg text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2">
-                            <ExternalLink className="h-3 w-3" />
-                            Verify
-                          </button>
-                          <button className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
-                            <Download className="h-3 w-3" />
-                            Download
+                          <div className="flex gap-2 pt-2">
+                            <Link to={`/verify/${cert.certificateId}`} className="flex-1">
+                              <button className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800 rounded-lg text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2">
+                                <ExternalLink className="h-3 w-3" />
+                                Verify
+                              </button>
+                            </Link>
+                            <a
+                              href={cert.ipfsUrl || `https://finalproject-jq2d.onrender.com/api/certificates/download/${cert.certificateId}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex-1"
+                            >
+                              <button className="w-full px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
+                                <Download className="h-3 w-3" />
+                                Download
+                              </button>
+                            </a>
+                          </div>
+
+                          <button
+                            onClick={() => shareCredential(cert)}
+                            className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center justify-center gap-2"
+                          >
+                            <Share2 className="h-3 w-3" />
+                            Share on LinkedIn
                           </button>
                         </div>
-
-                        <button
-                          onClick={() => shareCredential(cert)}
-                          className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center justify-center gap-2"
-                        >
-                          <Share2 className="h-3 w-3" />
-                          Share on LinkedIn
-                        </button>
-                      </div>
-                    </motion.div>
-                  ))}
+                      </motion.div>
+                    ))
+                  )}
                 </motion.div>
               )}
 
+              {/* ATTENDANCE TAB */}
               {activeTab === 'attendance' && (
                 <motion.div
                   key="attendance"
@@ -433,36 +636,76 @@ const ProfilePage = () => {
                   exit={{ opacity: 0, y: -20 }}
                   className="space-y-4"
                 >
-                  {mockPOAPs.map((poap, i) => (
-                    <motion.div
-                      key={poap._id}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.1 }}
-                      className="flex items-center justify-between p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="h-12 w-12 rounded-full bg-gradient-to-br from-pink-500 to-orange-500 flex items-center justify-center">
-                          <MapPin className="h-6 w-6 text-white" />
+                  {poaps.length === 0 ? (
+                    <div className="text-center py-12">
+                      <MapPin className="h-16 w-16 mx-auto mb-4 text-slate-300 dark:text-slate-700" />
+                      <p className="text-slate-600 dark:text-slate-400 mb-4">No attendance records yet</p>
+                      <Link to="/browse-events">
+                        <Button>Find Events to Attend</Button>
+                      </Link>
+                    </div>
+                  ) : (
+                    poaps.map((poap, i) => (
+                      <motion.div
+                        key={poap._id}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: i * 0.1 }}
+                        className="flex items-center justify-between p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="h-12 w-12 rounded-full bg-gradient-to-br from-pink-500 to-orange-500 flex items-center justify-center">
+                            <MapPin className="h-6 w-6 text-white" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold">{poap.eventName}</h4>
+                            <p className="text-sm text-slate-600 dark:text-slate-400">
+                              {new Date(poap.checkInTime).toLocaleDateString()} at {new Date(poap.checkInTime).toLocaleTimeString()}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <h4 className="font-bold">{poap.eventName}</h4>
-                          <p className="text-sm text-slate-600 dark:text-slate-400">
-                            {new Date(poap.checkInTime).toLocaleDateString()} at {new Date(poap.checkInTime).toLocaleTimeString()}
-                          </p>
+                        <div className="text-right">
+                          <div className="text-2xl font-bold text-green-600">{poap.attendanceScore}%</div>
+                          <div className="text-xs text-slate-600 dark:text-slate-400">Score</div>
                         </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-2xl font-bold text-green-600">{poap.attendanceScore}%</div>
-                        <div className="text-xs text-slate-600 dark:text-slate-400">Score</div>
-                      </div>
-                    </motion.div>
-                  ))}
+                      </motion.div>
+                    ))
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>
           </div>
         </div>
+
+        {/* Quick Actions Card */}
+        <Card className="bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/20 dark:to-purple-950/20 border-indigo-200">
+          <CardContent className="p-6">
+            <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-indigo-600" />
+              Quick Actions
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Link to="/student/quizzes">
+                <Button variant="outline" className="w-full justify-start">
+                  <Code className="h-4 w-4 mr-2" />
+                  Take Skill Quiz
+                </Button>
+              </Link>
+              <Link to="/browse-events">
+                <Button variant="outline" className="w-full justify-start">
+                  <Calendar className="h-4 w-4 mr-2" />
+                  Upcoming Events
+                </Button>
+              </Link>
+              <Link to="/dashboard">
+                <Button variant="outline" className="w-full justify-start">
+                  <Trophy className="h-4 w-4 mr-2" />
+                  View Dashboard
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
