@@ -1,15 +1,18 @@
-// In server/controllers/admin.controller.js
+// server/controllers/admin.controller.js - WITH BYPASS MODE
 const User = require('../models/user.model');
 const StudentRoster = require('../models/studentRoster.model');
 const jwt = require('jsonwebtoken');
-const { sendFacultyInvite } = require('../utils/mailer'); // Our mailman!
-const csv = require('csv-parser'); // <-- IMPORT
+const { sendFacultyInvite } = require('../utils/mailer');
+const csv = require('csv-parser');
 const stream = require('stream');
-const Event = require('../models/event.model');           // <-- ADD THIS
-const Certificate = require('../models/certificate.model'); // <-- ADD THIS
-const SystemLog = require('../models/systemLog.model'); // <-- IMPORT
-// ... (keep other imports like jwt, mailer, etc.)
+const Event = require('../models/event.model');
+const Certificate = require('../models/certificate.model');
+const SystemLog = require('../models/systemLog.model');
 
+// --- CONFIG: SET TO TRUE TO BYPASS EMAILS ---
+const BYPASS_EMAIL = process.env.BYPASS_EMAIL === 'true';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://the-blockchain-based-skill-credenti.vercel.app';
+// --------------------------------------------
 
 exports.inviteFaculty = async (req, res) => {
     const { name, email, department } = req.body;
@@ -22,33 +25,53 @@ exports.inviteFaculty = async (req, res) => {
         }
 
         // 2. Create the invite token
-        // This token contains all the info we need to create the account later
         const inviteToken = jwt.sign(
             { name, email: email.toLowerCase(), department, role: 'Faculty' },
             process.env.JWT_SECRET,
-            { expiresIn: '24h' } // Invite is good for 1 day
+            { expiresIn: '24h' }
         );
 
-        // 3. Send the email
-        await sendFacultyInvite(email, inviteToken);
+        // --- BYPASS EMAIL LOGIC ---
+        if (BYPASS_EMAIL) {
+            const inviteLink = `${FRONTEND_URL}/claim-invite/${inviteToken}`;
+            
+            console.log('🔓 EMAIL BYPASS MODE - Faculty Invite Link:', inviteLink);
+            console.log('📧 Invite for:', { name, email, department });
+            
+            return res.status(200).json({ 
+                message: '⚠️ Email sending is disabled. Share the invite link manually.',
+                inviteLink: inviteLink,
+                bypassMode: true,
+                faculty: { name, email, department }
+            });
+        }
+        // --------------------------
 
-        res.status(200).json({ message: `Invite sent successfully to ${email}.` });
+        // 3. Normal email flow
+        try {
+            await sendFacultyInvite(email, inviteToken);
+            res.status(200).json({ message: `Invite sent successfully to ${email}.` });
+        } catch (emailError) {
+            console.error("EMAIL FAILED:", emailError.message);
+            
+            // Provide fallback link
+            const inviteLink = `${FRONTEND_URL}/claim-invite/${inviteToken}`;
+            
+            return res.status(200).json({ 
+                message: 'Email delivery failed. Use this link instead:',
+                inviteLink: inviteLink,
+                emailFailed: true,
+                faculty: { name, email, department }
+            });
+        }
 
     } catch (error) {
         console.error(error);
-        if (error.message === 'Email sending failed') {
-            return res.status(500).json({ message: 'Admin action failed: Could not send email.' });
-        }
         res.status(500).json({ message: 'Server Error' });
     }
 };
 
-
-
-// In server/controllers/admin.controller.js
-// ... (keep other imports)
-
-// --- UPDATED FUNCTION: Import Student Roster ---
+// --- ROSTER IMPORT (Unchanged) ---
 exports.importStudentRoster = async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ message: 'No file uploaded.' });
@@ -69,10 +92,8 @@ exports.importStudentRoster = async (req, res) => {
         .on('data', (data) => results.push(data))
         .on('end', async () => {
             for (const [index, row] of results.entries()) {
-                // 1. Get 'semester' from the row
                 const { name, email, usn, department, year, semester } = row;
 
-                // 2. Basic validation (added semester)
                 if (!name || !email || !usn || !department || !year || !semester) {
                     errors.push(`Row ${index + 2}: Missing required fields (name, email, usn, department, year, semester).`);
                     skippedCount++;
@@ -83,7 +104,6 @@ exports.importStudentRoster = async (req, res) => {
                     const emailLower = email.toLowerCase();
                     const usnLower = usn.toLowerCase();
 
-                    // 3. Check if user already exists
                     const existingUser = await User.findOne({ $or: [{ email: emailLower }, { usn: usnLower }] });
                     const existingRoster = await StudentRoster.findOne({ $or: [{ email: emailLower }, { usn: usnLower }] });
 
@@ -92,16 +112,13 @@ exports.importStudentRoster = async (req, res) => {
                         continue; 
                     }
 
-                    // 4. Add to roster (added semester)
                     const newRosterEntry = new StudentRoster({
                         name,
                         email: emailLower,
-                        // --- FIX: FORCE UPPERCASE ---
-                        usn: usn.toUpperCase(), // usnLower was previously used, switch to Upper
+                        usn: usn.toUpperCase(),
                         department: department.toUpperCase(),
-                        // ----------------------------
                         year: parseInt(year),
-                        semester // <-- ADDED HERE
+                        semester
                     });
                     await newRosterEntry.save();
                     successCount++;
@@ -112,7 +129,6 @@ exports.importStudentRoster = async (req, res) => {
                 }
             }
 
-            // 5. Send final report
             res.status(200).json({
                 message: `Roster import complete. Added ${successCount} new students. Skipped ${skippedCount} duplicates or invalid rows.`,
                 errors: errors
@@ -123,32 +139,18 @@ exports.importStudentRoster = async (req, res) => {
         });
 };
 
-
-// In server/controllers/admin.controller.js
-
-// In server/controllers/admin.controller.js
-
-// In server/controllers/admin.controller.js
-
-// --- UPDATED ANALYTICS CONTROLLER ---
+// --- ANALYTICS (Unchanged) ---
 exports.getAnalytics = async (req, res) => {
     try {
-        // 1. Basic Counts
         const totalStudents = await User.countDocuments({ role: 'Student' });
         const totalEvents = await Event.countDocuments();
         const totalCerts = await Certificate.countDocuments();
 
-        // --- NEW: CALCULATE VERIFICATION RATE ---
-        // Count how many certificates have been scanned at least once (> 0)
         const verifiedCertsCount = await Certificate.countDocuments({ scanCount: { $gt: 0 } });
-        
-        // Calculate percentage (avoid division by zero)
         const verificationRate = totalCerts > 0 
             ? ((verifiedCertsCount / totalCerts) * 100).toFixed(1) 
             : 0;
-        // ----------------------------------------
 
-        // 2. Charts Data (Department Distribution)
         const certsByDept = await Certificate.aggregate([
             {
                 $lookup: { from: 'users', localField: 'studentEmail', foreignField: 'email', as: 'student' }
@@ -158,7 +160,6 @@ exports.getAnalytics = async (req, res) => {
             { $project: { name: '$_id', value: '$count', _id: 0 } }
         ]);
 
-        // 3. Trends Data (Monthly)
         const monthlyData = await Certificate.aggregate([
             { $group: { _id: { $month: "$createdAt" }, count: { $sum: 1 } } },
             { $sort: { _id: 1 } }
@@ -166,7 +167,6 @@ exports.getAnalytics = async (req, res) => {
         const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
         const trends = monthlyData.map(item => ({ name: monthNames[item._id - 1], total: item.count }));
 
-        // 4. Student Distribution (Bar Chart)
         const studentsByDept = await User.aggregate([
             { $match: { role: 'Student' } },
             { $group: { _id: '$department', count: { $sum: 1 } } },
@@ -174,29 +174,18 @@ exports.getAnalytics = async (req, res) => {
             { $sort: { count: -1 } }
         ]);
 
-        // 5. Recent Activity Logs
         const recentLogs = await SystemLog.find().sort({ timestamp: -1 }).limit(10);
 
-        // --- NEW: 6. Detailed Certificate Report (Latest 50) ---
-        // ... inside getAnalytics function ...
-
-        // --- NEW: 4. Detailed Certificate Report (Latest 50) ---
-        // REMOVED .select() to ensure we get all data for now
         const detailedReports = await Certificate.find()
             .sort({ createdAt: -1 })
             .limit(50);
 
-        console.log("DEBUG: Found detailedReports:", detailedReports.length); // <--- LOG 1
-
-        // --- NEW: 5. Blockchain Logs (Simulated from Cert Data) ---
         const blockchainLogs = detailedReports.map(cert => ({
             txHash: cert.transactionHash || 'Pending...',
             method: 'MintCertificate', 
             timestamp: cert.createdAt,
             status: cert.transactionHash ? 'Success' : 'Failed'
         }));
-        
-        console.log("DEBUG: Generated blockchainLogs:", blockchainLogs.length); // <--- LOG 2
 
         res.status(200).json({
             totalStudents, 
@@ -210,7 +199,6 @@ exports.getAnalytics = async (req, res) => {
             detailedReports, 
             blockchainLogs   
         });
-// ...
 
     } catch (error) {
         console.error('Analytics Error:', error);

@@ -1,4 +1,4 @@
-// In server/controllers/auth.controller.js
+// server/controllers/auth.controller.js - WITH EMAIL BYPASS
 const User = require('../models/user.model');
 const StudentRoster = require('../models/studentRoster.model'); 
 const jwt = require('jsonwebtoken');
@@ -9,6 +9,9 @@ const { sendStudentActivation, sendPasswordReset } = require('../utils/mailer');
 
 const { normalizeUSN, normalizeDept, normalizeEmail } = require('../utils/helpers');
 
+// --- CONFIG: SET TO TRUE TO BYPASS EMAILS ---
+const BYPASS_EMAIL = process.env.BYPASS_EMAIL === 'true';
+// --------------------------------------------
 
 // --- 1. FACULTY INVITE: Claim Account ---
 exports.claimFacultyInvite = async (req, res) => {
@@ -67,7 +70,6 @@ exports.claimFacultyInvite = async (req, res) => {
         res.status(500).json({ message: 'Server Error' });
     }
 };
-
 
 // --- 2. SIWE STEP 1: Get Nonce ---
 exports.getNonce = async (req, res) => {
@@ -138,8 +140,7 @@ exports.verifySignature = async (req, res) => {
     }
 };
 
-
-// --- 4. REQUEST STUDENT ACTIVATION (The Failed Route) ---
+// --- 4. REQUEST STUDENT ACTIVATION (BYPASS VERSION) ---
 exports.requestStudentActivation = async (req, res) => {
     const { usn, email } = req.body;
 
@@ -171,20 +172,42 @@ exports.requestStudentActivation = async (req, res) => {
             { expiresIn: '24h' }
         );
 
-        // --- EMAIL FAILSAFE LOGIC ---
+        // --- BYPASS EMAIL LOGIC ---
+        if (BYPASS_EMAIL) {
+            // Generate activation link and return it directly
+            const activationLink = `${process.env.FRONTEND_URL || 'https://the-blockchain-based-skill-credenti.vercel.app'}/activate-account/${activationToken}`;
+            
+            console.log('🔓 EMAIL BYPASS MODE - Activation Link:', activationLink);
+            
+            return res.status(200).json({ 
+                message: '⚠️ Email sending is disabled. Use the link below to activate your account.',
+                activationLink: activationLink,
+                bypassMode: true
+            });
+        }
+        // --------------------------
+
+        // Normal email flow
         let emailStatus = "Sent";
         try {
             await sendStudentActivation(rosterEntry.email, activationToken);
         } catch (emailError) {
-            console.error("EMAIL FAILED (Recoverable):", emailError.message);
+            console.error("EMAIL FAILED:", emailError.message);
             emailStatus = "Failed";
+            
+            // Provide fallback link
+            const debugLink = `${process.env.FRONTEND_URL || 'https://the-blockchain-based-skill-credenti.vercel.app'}/activate-account/${activationToken}`;
+            
+            return res.status(200).json({ 
+                message: `Email delivery failed. Use this link instead:`, 
+                debugLink: debugLink,
+                emailFailed: true
+            });
         }
 
-        const debugLink = "https://the-blockchain-based-skill-credenti.vercel.app/activate-account/" + activationToken;
-
         res.status(200).json({ 
-            message: `Activation process started! (Email status: ${emailStatus})`, 
-            debugLink: debugLink
+            message: 'Activation email sent successfully! Check your inbox.',
+            emailStatus
         });
 
     } catch (error) {
@@ -192,7 +215,6 @@ exports.requestStudentActivation = async (req, res) => {
         res.status(500).json({ message: 'Server Error' });
     }
 };
-
 
 // --- 5. ACTIVATE STUDENT ACCOUNT ---
 exports.activateStudentAccount = async (req, res) => {
@@ -237,7 +259,6 @@ exports.activateStudentAccount = async (req, res) => {
         });
 
         await newUser.save();
-
         await StudentRoster.findByIdAndDelete(rosterEntry._id);
 
         const payload = {
@@ -266,8 +287,7 @@ exports.activateStudentAccount = async (req, res) => {
     }
 };
 
-
-// --- 6. REQUEST PASSWORD RESET ---
+// --- 6. REQUEST PASSWORD RESET (BYPASS VERSION) ---
 exports.requestPasswordReset = async (req, res) => {
     const { email } = req.body;
     try {
@@ -282,9 +302,32 @@ exports.requestPasswordReset = async (req, res) => {
             { expiresIn: '15m' }
         );
 
-        await sendPasswordReset(user.email, resetToken);
-        
-        res.status(200).json({ message: 'If an account exists with this email, a reset link has been sent.' });
+        // --- BYPASS EMAIL LOGIC ---
+        if (BYPASS_EMAIL) {
+            const resetLink = `${process.env.FRONTEND_URL || 'https://the-blockchain-based-skill-credenti.vercel.app'}/reset-password/${resetToken}`;
+            
+            console.log('🔓 EMAIL BYPASS MODE - Password Reset Link:', resetLink);
+            
+            return res.status(200).json({ 
+                message: '⚠️ Email sending is disabled. Use the link below to reset your password.',
+                resetLink: resetLink,
+                bypassMode: true
+            });
+        }
+        // --------------------------
+
+        try {
+            await sendPasswordReset(user.email, resetToken);
+            res.status(200).json({ message: 'Password reset email sent successfully!' });
+        } catch (emailError) {
+            const resetLink = `${process.env.FRONTEND_URL || 'https://the-blockchain-based-skill-credenti.vercel.app'}/reset-password/${resetToken}`;
+            
+            return res.status(200).json({ 
+                message: 'Email delivery failed. Use this link instead:',
+                resetLink: resetLink,
+                emailFailed: true
+            });
+        }
 
     } catch (error) {
         console.error(error);

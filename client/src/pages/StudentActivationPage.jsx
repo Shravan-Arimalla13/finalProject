@@ -1,4 +1,4 @@
-// In client/src/pages/StudentActivationPage.jsx
+// client/src/pages/StudentActivationPage.jsx - WITH BYPASS UI
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api';
@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert-box";
+import { Copy, CheckCircle, AlertCircle, ExternalLink } from "lucide-react";
 // ---
 
 function StudentActivationPage() {
@@ -24,19 +26,34 @@ function StudentActivationPage() {
     const [message, setMessage] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    
+    // --- NEW: For bypass mode ---
+    const [activationLink, setActivationLink] = useState('');
+    const [bypassMode, setBypassMode] = useState(false);
+    const [copied, setCopied] = useState(false);
+    // ---------------------------
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
         setMessage('');
         setError('');
+        setActivationLink('');
+        setBypassMode(false);
 
         try {
             const response = await api.post('/auth/request-student-activation', { usn, email });
-            // --- LOG THE BACKDOOR LINK ---
-        console.log("DEBUG ACTIVATION LINK:", response.data.debugLink);
-        // -----------------------------
-            setMessage(response.data.message);
+            
+            // --- CHECK FOR BYPASS MODE ---
+            if (response.data.bypassMode || response.data.emailFailed) {
+                setBypassMode(true);
+                setActivationLink(response.data.activationLink || response.data.debugLink);
+                setMessage(response.data.message);
+            } else {
+                setMessage(response.data.message);
+            }
+            // ----------------------------
+            
             setUsn('');
             setEmail('');
         } catch (err) {
@@ -44,6 +61,12 @@ function StudentActivationPage() {
         } finally {
             setLoading(false);
         }
+    };
+
+    const copyToClipboard = () => {
+        navigator.clipboard.writeText(activationLink);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
     };
 
     return (
@@ -56,21 +79,81 @@ function StudentActivationPage() {
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    {/* Success Message */}
-                    {message && (
-                        <div className="mb-4 p-4 bg-green-50 text-green-700 border border-green-200 rounded-md text-sm text-center">
-                            {message}
-                        </div>
+                    {/* --- BYPASS MODE ALERT --- */}
+                    {bypassMode && activationLink && (
+                        <Alert className="mb-4 bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900">
+                            <AlertCircle className="h-4 w-4 text-amber-600" />
+                            <AlertTitle className="text-amber-900 dark:text-amber-400">
+                                ⚠️ Email Sending Disabled
+                            </AlertTitle>
+                            <AlertDescription className="mt-2 space-y-3">
+                                <p className="text-sm text-amber-800 dark:text-amber-300">
+                                    Use the activation link below to complete your registration:
+                                </p>
+                                
+                                {/* Link Display Box */}
+                                <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-amber-200 dark:border-amber-800">
+                                    <p className="text-xs font-mono break-all text-slate-700 dark:text-slate-300">
+                                        {activationLink}
+                                    </p>
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div className="flex gap-2">
+                                    <Button
+                                        onClick={copyToClipboard}
+                                        variant="outline"
+                                        size="sm"
+                                        className="flex-1"
+                                    >
+                                        {copied ? (
+                                            <>
+                                                <CheckCircle className="h-3 w-3 mr-2" />
+                                                Copied!
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Copy className="h-3 w-3 mr-2" />
+                                                Copy Link
+                                            </>
+                                        )}
+                                    </Button>
+                                    
+                                    <Button
+                                        onClick={() => window.open(activationLink, '_blank')}
+                                        size="sm"
+                                        className="flex-1"
+                                    >
+                                        <ExternalLink className="h-3 w-3 mr-2" />
+                                        Open Link
+                                    </Button>
+                                </div>
+                            </AlertDescription>
+                        </Alert>
                     )}
                     
-                    {/* Error Message */}
+                    {/* --- SUCCESS MESSAGE (Normal Mode) --- */}
+                    {message && !bypassMode && (
+                        <Alert className="mb-4 bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-900">
+                            <CheckCircle className="h-4 w-4 text-green-600" />
+                            <AlertTitle className="text-green-900 dark:text-green-400">Success!</AlertTitle>
+                            <AlertDescription className="text-green-700 dark:text-green-300">
+                                {message}
+                            </AlertDescription>
+                        </Alert>
+                    )}
+                    
+                    {/* --- ERROR MESSAGE --- */}
                     {error && (
-                        <div className="mb-4 p-4 bg-red-50 text-red-700 border border-red-200 rounded-md text-sm text-center">
-                            {error}
-                        </div>
+                        <Alert variant="destructive" className="mb-4">
+                            <AlertCircle className="h-4 w-4" />
+                            <AlertTitle>Error</AlertTitle>
+                            <AlertDescription>{error}</AlertDescription>
+                        </Alert>
                     )}
 
-                    {!message && (
+                    {/* --- FORM (Hide after bypass link shown) --- */}
+                    {!bypassMode && (
                         <form onSubmit={handleSubmit} className="space-y-4">
                             <div className="space-y-2">
                                 <Label htmlFor="usn">University Seat Number (USN)</Label>
@@ -97,6 +180,21 @@ function StudentActivationPage() {
                                 {loading ? 'Sending Link...' : 'Send Activation Link'}
                             </Button>
                         </form>
+                    )}
+                    
+                    {/* --- RESET BUTTON (Show in bypass mode) --- */}
+                    {bypassMode && (
+                        <Button
+                            onClick={() => {
+                                setBypassMode(false);
+                                setActivationLink('');
+                                setMessage('');
+                            }}
+                            variant="outline"
+                            className="w-full mt-4"
+                        >
+                            Request Another Activation Link
+                        </Button>
                     )}
                 </CardContent>
                 <CardFooter className="justify-center">
