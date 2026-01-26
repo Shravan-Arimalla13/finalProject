@@ -183,39 +183,70 @@ const FacultyDashboard = ({ user }) => (
 // ============================================
 // WALLET CONNECTION COMPONENT
 // ============================================
+// Improved WalletConnectionCard with -32002 error handling
+// Replace the existing WalletConnectionCard in DashboardPage.jsx
+
 const WalletConnectionCard = ({ user, onWalletConnected }) => {
   const [connecting, setConnecting] = useState(false);
+  const [connectionPending, setConnectionPending] = useState(false);
   const [walletAddress, setWalletAddress] = useState(user?.walletAddress || null);
   const [copied, setCopied] = useState(false);
 
   const connectWallet = async () => {
+    // ✅ FIX 1: Prevent double-click and pending connections
+    if (connecting || connectionPending) {
+      toast.info('Connection already in progress. Please wait...', {
+        description: 'Check if MetaMask popup is open'
+      });
+      return;
+    }
+
+    // ✅ FIX 2: Check MetaMask installation
     if (!window.ethereum) {
-      toast.error('MetaMask not detected. Please install MetaMask extension first.', {
-        description: 'Visit metamask.io to download'
+      toast.error('MetaMask not detected!', {
+        description: 'Please install MetaMask extension first',
+        action: {
+          label: 'Install',
+          onClick: () => window.open('https://metamask.io/download', '_blank')
+        }
       });
       return;
     }
 
     setConnecting(true);
+    setConnectionPending(true);
+    
     try {
       console.log('🔗 Requesting MetaMask connection...');
       
-      // Request account access
-      const accounts = await window.ethereum.request({ 
+      // ✅ FIX 3: Request with timeout
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('MetaMask connection timeout')), 30000)
+      );
+      
+      const connectPromise = window.ethereum.request({ 
         method: 'eth_requestAccounts' 
       });
       
+      const accounts = await Promise.race([connectPromise, timeoutPromise]);
+      
+      if (!accounts || accounts.length === 0) {
+        throw new Error('No accounts found in MetaMask');
+      }
+      
       const address = accounts[0];
-      console.log('✅ Connected wallet:', address);
+      console.log('✅ MetaMask connected:', address);
 
       // Save to backend
+      console.log('💾 Saving wallet to database...');
       const response = await api.post('/users/save-wallet', { 
         walletAddress: address 
       });
 
       setWalletAddress(address);
-      toast.success('Wallet connected successfully!', {
-        description: 'You can now use Sign-In with Ethereum on the login page.'
+      toast.success('🎉 Wallet connected successfully!', {
+        description: `${address.slice(0, 6)}...${address.slice(-4)}`,
+        duration: 5000
       });
       
       // Notify parent component
@@ -226,21 +257,41 @@ const WalletConnectionCard = ({ user, onWalletConnected }) => {
     } catch (error) {
       console.error('❌ Wallet connection error:', error);
       
-      if (error.code === 4001) {
+      // ✅ FIX 4: Specific error handling
+      if (error.code === -32002) {
+        toast.error('MetaMask popup already open!', {
+          description: 'Close all MetaMask windows and try again',
+          duration: 7000,
+          action: {
+            label: 'Refresh Page',
+            onClick: () => window.location.reload()
+          }
+        });
+      } else if (error.code === 4001) {
         toast.error('Connection rejected', {
-          description: 'Please approve the connection in MetaMask to continue.'
+          description: 'You declined the connection request in MetaMask'
+        });
+      } else if (error.code === -32603) {
+        toast.error('MetaMask internal error', {
+          description: 'Try unlocking MetaMask and refreshing the page'
+        });
+      } else if (error.message?.includes('timeout')) {
+        toast.error('Connection timeout', {
+          description: 'MetaMask took too long to respond. Please try again.'
         });
       } else if (error.response?.status === 400) {
         toast.error('Wallet already linked', {
-          description: error.response.data.message
+          description: error.response.data.message || 'This wallet is connected to another student'
         });
       } else {
-        toast.error('Failed to connect wallet', {
-          description: error.response?.data?.message || error.message
+        toast.error('Connection failed', {
+          description: error.response?.data?.message || error.message || 'Please try again'
         });
       }
     } finally {
       setConnecting(false);
+      // ✅ FIX 5: Clear pending state after delay
+      setTimeout(() => setConnectionPending(false), 3000);
     }
   };
 
@@ -248,9 +299,16 @@ const WalletConnectionCard = ({ user, onWalletConnected }) => {
     if (walletAddress) {
       navigator.clipboard.writeText(walletAddress);
       setCopied(true);
-      toast.success('Address copied to clipboard!');
+      toast.success('Address copied!');
       setTimeout(() => setCopied(false), 2000);
     }
+  };
+
+  const disconnectWallet = () => {
+    // Optional: Add backend endpoint to clear wallet if needed
+    toast.info('To unlink wallet, contact administrator', {
+      description: 'Wallet addresses are permanent for security reasons'
+    });
   };
 
   return (
@@ -336,10 +394,10 @@ const WalletConnectionCard = ({ user, onWalletConnected }) => {
               </AlertDescription>
             </Alert>
 
-            {/* Connect Button */}
+            {/* ✅ IMPROVED: Shows pending state */}
             <Button 
               onClick={connectWallet} 
-              disabled={connecting}
+              disabled={connecting || connectionPending}
               className="w-full"
               size="lg"
             >
@@ -347,6 +405,11 @@ const WalletConnectionCard = ({ user, onWalletConnected }) => {
                 <>
                   <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full mr-2" />
                   Connecting to MetaMask...
+                </>
+              ) : connectionPending ? (
+                <>
+                  <div className="animate-pulse h-4 w-4 bg-white/50 rounded-full mr-2" />
+                  Waiting for MetaMask...
                 </>
               ) : (
                 <>
@@ -369,9 +432,15 @@ const WalletConnectionCard = ({ user, onWalletConnected }) => {
                   Install it here
                 </a>
               </p>
-              <p className="text-xs text-muted-foreground text-center">
-                Required for blockchain-verified certificates and SIWE login
-              </p>
+              
+              {/* ✅ NEW: Troubleshooting tips */}
+              {(connecting || connectionPending) && (
+                <div className="text-xs text-center p-2 bg-blue-50 dark:bg-blue-950/20 rounded border border-blue-200 dark:border-blue-800">
+                  <p className="text-blue-800 dark:text-blue-200">
+                    💡 Check if MetaMask popup appeared. It might be behind other windows!
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -379,6 +448,53 @@ const WalletConnectionCard = ({ user, onWalletConnected }) => {
     </Card>
   );
 };
+
+// ============================================
+// BONUS: MetaMask Connection Checker
+// Add this utility function to help debug
+// ============================================
+
+const checkMetaMaskStatus = async () => {
+  if (!window.ethereum) {
+    return { 
+      installed: false, 
+      message: 'MetaMask not detected' 
+    };
+  }
+
+  try {
+    // Check if MetaMask is locked
+    const accounts = await window.ethereum.request({ 
+      method: 'eth_accounts' // This doesn't prompt, just checks
+    });
+
+    if (accounts.length === 0) {
+      return {
+        installed: true,
+        locked: true,
+        message: 'MetaMask is locked. Please unlock it.'
+      };
+    }
+
+    return {
+      installed: true,
+      locked: false,
+      connected: true,
+      currentAccount: accounts[0],
+      message: 'MetaMask is ready'
+    };
+  } catch (error) {
+    return {
+      installed: true,
+      error: true,
+      message: error.message
+    };
+  }
+};
+
+// Usage: Call before connecting
+// const status = await checkMetaMaskStatus();
+// console.log('MetaMask Status:', status);
 
 
 // ============================================
