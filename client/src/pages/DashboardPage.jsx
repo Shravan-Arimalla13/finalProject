@@ -5,7 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import api from "../api";
 import { motion } from "framer-motion";
 import { Wallet, Link as LinkIcon, CheckCircle2 } from "lucide-react";
-
+import { toast } from "sonner";
 
 // UI Components
 import { Button } from "@/components/ui/button";
@@ -18,12 +18,33 @@ import SmartRecommendations from "../components/SmartRecommendations";
 
 // Icons
 import {
-  Award, Download, ExternalLink, MapPin, Clock, 
-  TrendingUp, Target, Calendar, Mail, Upload, 
-  GraduationCap, BarChart, Users, BrainCircuit,
-  Trophy, Zap, Sparkles, BookOpen, Code,
-  ShieldCheck, ChevronRight, Star, Share2
+  Award,
+  Download,
+  ExternalLink,
+  MapPin,
+  Clock,
+  TrendingUp,
+  Target,
+  Calendar,
+  Mail,
+  Upload,
+  GraduationCap,
+  BarChart,
+  Users,
+  BrainCircuit,
+  Trophy,
+  Zap,
+  Sparkles,
+  BookOpen,
+  Code,
+  ShieldCheck,
+  ChevronRight,
+  Star,
+  Share2,
+  Copy,
+  AlertCircle,
 } from "lucide-react";
+
 
 // ============================================
 // SUPERADMIN DASHBOARD
