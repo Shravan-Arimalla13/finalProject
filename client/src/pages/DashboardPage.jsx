@@ -22,7 +22,7 @@ import {
   TrendingUp, Target, Calendar, Mail, Upload, 
   GraduationCap, BarChart, Users, BrainCircuit,
   Trophy, Zap, Sparkles, BookOpen, Code,
-  ShieldCheck, ChevronRight, Star
+  ShieldCheck, ChevronRight, Star, Share2
 } from "lucide-react";
 
 // ============================================
