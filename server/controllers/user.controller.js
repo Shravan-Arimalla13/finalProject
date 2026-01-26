@@ -27,7 +27,9 @@ const normalizeEmail = (email) => {
 const normalizeWalletAddress = (address) => {
     if (!address || typeof address !== 'string') return null;
     try {
-        return getAddress(address.toLowerCase());
+        // ethers.js getAddress() automatically checksums and validates
+        // DO NOT use toLowerCase() - it breaks checksumming!
+        return getAddress(address);
     } catch (error) {
         throw new Error('Invalid Ethereum address format');
     }

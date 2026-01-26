@@ -4,6 +4,8 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import api from "../api";
 import { motion } from "framer-motion";
+import { Wallet, Link as LinkIcon, CheckCircle2 } from "lucide-react";
+
 
 // UI Components
 import { Button } from "@/components/ui/button";
@@ -155,6 +157,209 @@ const FacultyDashboard = ({ user }) => (
   </div>
 );
 
+
+
+// ============================================
+// WALLET CONNECTION COMPONENT
+// ============================================
+const WalletConnectionCard = ({ user, onWalletConnected }) => {
+  const [connecting, setConnecting] = useState(false);
+  const [walletAddress, setWalletAddress] = useState(user?.walletAddress || null);
+  const [copied, setCopied] = useState(false);
+
+  const connectWallet = async () => {
+    if (!window.ethereum) {
+      toast.error('MetaMask not detected. Please install MetaMask extension first.', {
+        description: 'Visit metamask.io to download'
+      });
+      return;
+    }
+
+    setConnecting(true);
+    try {
+      console.log('🔗 Requesting MetaMask connection...');
+      
+      // Request account access
+      const accounts = await window.ethereum.request({ 
+        method: 'eth_requestAccounts' 
+      });
+      
+      const address = accounts[0];
+      console.log('✅ Connected wallet:', address);
+
+      // Save to backend
+      const response = await api.post('/users/save-wallet', { 
+        walletAddress: address 
+      });
+
+      setWalletAddress(address);
+      toast.success('Wallet connected successfully!', {
+        description: 'You can now use Sign-In with Ethereum on the login page.'
+      });
+      
+      // Notify parent component
+      if (onWalletConnected) {
+        onWalletConnected(address);
+      }
+      
+    } catch (error) {
+      console.error('❌ Wallet connection error:', error);
+      
+      if (error.code === 4001) {
+        toast.error('Connection rejected', {
+          description: 'Please approve the connection in MetaMask to continue.'
+        });
+      } else if (error.response?.status === 400) {
+        toast.error('Wallet already linked', {
+          description: error.response.data.message
+        });
+      } else {
+        toast.error('Failed to connect wallet', {
+          description: error.response?.data?.message || error.message
+        });
+      }
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const copyAddress = () => {
+    if (walletAddress) {
+      navigator.clipboard.writeText(walletAddress);
+      setCopied(true);
+      toast.success('Address copied to clipboard!');
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <Card className="border-l-4 border-l-indigo-500 shadow-lg">
+      <CardContent className="p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="h-12 w-12 rounded-full bg-indigo-100 dark:bg-indigo-900/20 flex items-center justify-center">
+            <Wallet className="h-6 w-6 text-indigo-600" />
+          </div>
+          <div>
+            <h3 className="font-bold text-lg">MetaMask Wallet</h3>
+            <p className="text-sm text-muted-foreground">
+              {walletAddress ? 'Connected & Ready' : 'Connect for blockchain features'}
+            </p>
+          </div>
+        </div>
+
+        {walletAddress ? (
+          <div className="space-y-3">
+            {/* Connected Status */}
+            <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-200 dark:border-green-800">
+              <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-green-900 dark:text-green-100">Connected</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs font-mono text-green-700 dark:text-green-300 truncate">
+                    {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
+                  </p>
+                  <button 
+                    onClick={copyAddress}
+                    className="p-1 hover:bg-green-100 dark:hover:bg-green-800 rounded transition-colors"
+                    title="Copy full address"
+                  >
+                    {copied ? (
+                      <CheckCircle2 className="h-3 w-3 text-green-600" />
+                    ) : (
+                      <Copy className="h-3 w-3 text-green-600" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            {/* Benefits List */}
+            <div className="bg-blue-50 dark:bg-blue-900/10 p-3 rounded-lg border border-blue-200 dark:border-blue-800 space-y-2">
+              <p className="text-xs font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                ✅ Wallet Connected - You Can Now:
+              </p>
+              <ul className="text-xs text-blue-800 dark:text-blue-200 space-y-1">
+                <li className="flex items-start gap-2">
+                  <ShieldCheck className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                  <span>Receive blockchain-verified NFT certificates</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Zap className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                  <span>Use "Sign-In with Ethereum" for passwordless login</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Trophy className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                  <span>Claim attendance POAPs for events you attend</span>
+                </li>
+              </ul>
+            </div>
+
+            {/* View in MetaMask */}
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => window.open('https://metamask.io', '_blank')}
+              className="w-full"
+            >
+              <ExternalLink className="h-3 w-3 mr-2" />
+              Open MetaMask
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Warning Alert */}
+            <Alert className="bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800">
+              <AlertCircle className="h-4 w-4 text-amber-600" />
+              <AlertDescription className="text-sm text-amber-800 dark:text-amber-200">
+                Connect your wallet to receive blockchain certificates and use passwordless login.
+              </AlertDescription>
+            </Alert>
+
+            {/* Connect Button */}
+            <Button 
+              onClick={connectWallet} 
+              disabled={connecting}
+              className="w-full"
+              size="lg"
+            >
+              {connecting ? (
+                <>
+                  <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full mr-2" />
+                  Connecting to MetaMask...
+                </>
+              ) : (
+                <>
+                  <LinkIcon className="h-4 w-4 mr-2" />
+                  Connect MetaMask Wallet
+                </>
+              )}
+            </Button>
+            
+            {/* Help Text */}
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground text-center">
+                Don't have MetaMask?{' '}
+                <a 
+                  href="https://metamask.io/download" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:underline font-medium"
+                >
+                  Install it here
+                </a>
+              </p>
+              <p className="text-xs text-muted-foreground text-center">
+                Required for blockchain-verified certificates and SIWE login
+              </p>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+
 // ============================================
 // STUDENT DASHBOARD - RESTORED & ENHANCED
 // ============================================
@@ -163,6 +368,7 @@ const StudentDashboard = ({ user }) => {
   const [poaps, setPoaps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ total: 0, verified: 0, events: 0 });
+  const [walletConnected, setWalletConnected] = useState(!!user?.walletAddress);
 
   useEffect(() => {
     loadData();
@@ -182,13 +388,35 @@ const StudentDashboard = ({ user }) => {
       setPoaps(poapData);
       setStats({
         total: certs.length,
-        verified: certs.filter(c => c.isBlockchainVerified).length,
+        verified: certs.filter(c => c.isBlockchainVerified !== false).length,
         events: poapData.length
       });
     } catch (err) {
-      console.error("Student dashboard load failed");
+      console.error("Student dashboard load failed:", err);
+      toast.error("Failed to load dashboard data");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleWalletConnected = (address) => {
+    setWalletConnected(true);
+    console.log('✅ Wallet connected in dashboard:', address);
+  };
+
+  const shareCredential = (cert) => {
+    const shareText = `I just earned a verified blockchain credential for ${cert.eventName}! 🎓`;
+    const verifyUrl = `${window.location.origin}/verify/${cert.certificateId}`;
+    
+    if (navigator.share) {
+      navigator.share({
+        title: 'My Certificate',
+        text: shareText,
+        url: verifyUrl
+      });
+    } else {
+      const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(verifyUrl)}`;
+      window.open(linkedinUrl, '_blank');
     }
   };
 
@@ -233,67 +461,41 @@ const StudentDashboard = ({ user }) => {
       </motion.div>
 
       {/* STATS GRID */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <Card className="border-l-4 border-l-blue-500">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Certificates</p>
-                  <p className="text-3xl font-bold">{stats.total}</p>
-                </div>
-                <Award className="h-8 w-8 text-blue-600" />
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-          <Card className="border-l-4 border-l-pink-500">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Events Attended</p>
-                  <p className="text-3xl font-bold">{stats.events}</p>
-                </div>
-                <MapPin className="h-8 w-8 text-pink-600" />
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-          <Card className="border-l-4 border-l-purple-500">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Skill Level</p>
-                  <p className="text-3xl font-bold">
-                    {stats.total >= 10 ? "Advanced" : stats.total >= 5 ? "Intermediate" : "Beginner"}
-                  </p>
-                </div>
-                <TrendingUp className="h-8 w-8 text-purple-600" />
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
-          <Card className="border-l-4 border-l-indigo-500">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Career Progress</p>
-                  <p className="text-3xl font-bold">{Math.min(100, stats.total * 10)}%</p>
-                </div>
-                <Target className="h-8 w-8 text-indigo-600" />
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { label: "Certificates", value: stats.total, icon: Award, color: "blue" },
+          { label: "Events", value: stats.events, icon: MapPin, color: "purple" },
+          { label: "Verified", value: stats.verified, icon: ShieldCheck, color: "green" },
+          { label: "Score", value: `${Math.min(100, stats.total * 10)}%`, icon: TrendingUp, color: "orange" }
+        ].map((stat, i) => (
+          <motion.div
+            key={i}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.1 }}
+            whileHover={{ scale: 1.05 }}
+            className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-lg border border-slate-200 dark:border-slate-800 relative overflow-hidden group"
+          >
+            <div className={`absolute inset-0 bg-gradient-to-br from-${stat.color}-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity`} />
+            <div className="relative z-10">
+              <stat.icon className={`h-8 w-8 text-${stat.color}-500 mb-2`} />
+              <div className="text-3xl font-bold mb-1">{stat.value}</div>
+              <div className="text-sm text-slate-600 dark:text-slate-400">{stat.label}</div>
+            </div>
+          </motion.div>
+        ))}
       </div>
 
-      {/* AI RECOMMENDATIONS - RESTORED */}
+      {/* 🆕 WALLET CONNECTION CARD */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.5 }}
+      >
+        <WalletConnectionCard user={user} onWalletConnected={handleWalletConnected} />
+      </motion.div>
+
+      {/* AI RECOMMENDATIONS */}
       <SmartRecommendations />
 
       {/* CREDENTIALS SECTION */}
@@ -337,7 +539,7 @@ const StudentDashboard = ({ user }) => {
                         <h3 className="font-bold text-lg leading-tight flex-1">
                           {cert.eventName}
                         </h3>
-                        {cert.isBlockchainVerified && (
+                        {cert.isBlockchainVerified !== false && (
                           <ShieldCheck className="h-5 w-5 flex-shrink-0 ml-2" />
                         )}
                       </div>
@@ -366,6 +568,15 @@ const StudentDashboard = ({ user }) => {
                           </Button>
                         </a>
                       </div>
+                      <Button
+                        onClick={() => shareCredential(cert)}
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                      >
+                        <Share2 className="h-3 w-3 mr-2" />
+                        Share
+                      </Button>
                     </CardContent>
                   </Card>
                 </motion.div>

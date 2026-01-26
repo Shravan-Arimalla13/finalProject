@@ -73,49 +73,56 @@ const WalletLoginForm = ({ onLoginSuccess }) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
-    const handleSiweLogin = async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            if (!window.ethereum) throw new Error("MetaMask is not installed.");
-            
-            const provider = new ethers.BrowserProvider(window.ethereum);
-            const signer = await provider.getSigner();
-            const address = await signer.getAddress();
+  const handleSiweLogin = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+        if (!window.ethereum) throw new Error("MetaMask is not installed.");
+        
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const signer = await provider.getSigner();
+        const address = await signer.getAddress();
 
-            const nonceRes = await api.get(`/auth/nonce?address=${address}`);
-            const nonce = nonceRes.data.nonce;
+        // 🔧 FIX: Get actual chain ID from connected network
+        const network = await provider.getNetwork();
+        const chainId = Number(network.chainId);
+        
+        console.log('🔗 Connected to Chain ID:', chainId);
 
-            const siweMessage = new SiweMessage({
-                domain: window.location.host,
-                address: address,
-                statement: 'Sign in to the Credentialing Platform.',
-                uri: window.location.origin,
-                version: '1',
-                chainId: 11155111, // Changed to Sepolia Chain ID
-                nonce: nonce,
-            });
+        const nonceRes = await api.get(`/auth/nonce?address=${address}`);
+        const nonce = nonceRes.data.nonce;
 
-            const messageToSign = siweMessage.prepareMessage();
-            const signature = await signer.signMessage(messageToSign);
+        const siweMessage = new SiweMessage({
+            domain: window.location.host,
+            address: address,
+            statement: 'Sign in to the Credentialing Platform.',
+            uri: window.location.origin,
+            version: '1',
+            chainId: chainId, // 🔧 Use actual chain ID instead of hardcoded
+            nonce: nonce,
+        });
 
-            const verifyRes = await api.post('/auth/verify-signature', {
-                message: messageToSign,
-                signature: signature,
-            });
-            
-            onLoginSuccess(verifyRes.data.user, verifyRes.data.token);
+        const messageToSign = siweMessage.prepareMessage();
+        const signature = await signer.signMessage(messageToSign);
 
-        } catch (err) {
-            if (err.response?.status === 404) {
-                setError("Wallet not linked. Login with Password first.");
-            } else {
-                setError(err.response?.data?.message || err.message || 'Login failed.');
-            }
-        } finally {
-            setLoading(false);
+        const verifyRes = await api.post('/auth/verify-signature', {
+            message: messageToSign,
+            signature: signature,
+        });
+        
+        onLoginSuccess(verifyRes.data.user, verifyRes.data.token);
+
+    } catch (err) {
+        if (err.response?.status === 404) {
+            setError("Wallet not linked. Login with Password first and connect your wallet from the Dashboard.");
+        } else {
+            setError(err.response?.data?.message || err.message || 'Login failed.');
         }
-    };
+    } finally {
+        setLoading(false);
+    }
+};
+
 
     return (
         <CardContent className="space-y-4 pt-4">

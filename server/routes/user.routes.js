@@ -57,4 +57,20 @@ router.delete(
     deleteStudent
 );
 
+
+router.get(
+    '/wallet-status',
+    authMiddleware,
+    async (req, res) => {
+        try {
+            const user = await User.findById(req.user.id).select('walletAddress');
+            res.json({
+                hasWallet: !!user.walletAddress,
+                walletAddress: user.walletAddress || null
+            });
+        } catch (error) {
+            res.status(500).json({ message: 'Server error' });
+        }
+    }
+);
 module.exports = router;
