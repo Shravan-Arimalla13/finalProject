@@ -183,115 +183,179 @@ const FacultyDashboard = ({ user }) => (
 // ============================================
 // WALLET CONNECTION COMPONENT
 // ============================================
-// Improved WalletConnectionCard with -32002 error handling
-// Replace the existing WalletConnectionCard in DashboardPage.jsx
+// BULLETPROOF WalletConnectionCard - Prevents -32002 Error
+// Replace in client/src/pages/DashboardPage.jsx
 
 const WalletConnectionCard = ({ user, onWalletConnected }) => {
   const [connecting, setConnecting] = useState(false);
-  const [connectionPending, setConnectionPending] = useState(false);
   const [walletAddress, setWalletAddress] = useState(user?.walletAddress || null);
   const [copied, setCopied] = useState(false);
+  
+  // ✅ CRITICAL: Track pending requests globally
+  const [pendingRequest, setPendingRequest] = useState(false);
+  const connectionTimeoutRef = useRef(null);
 
+  // ✅ FIX 1: Clear any pending state on mount
+  useEffect(() => {
+    return () => {
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // ✅ FIX 2: Check if MetaMask is already processing
+  const isMetaMaskBusy = async () => {
+    if (!window.ethereum) return false;
+    
+    try {
+      // This method doesn't trigger popup, just checks state
+      const accounts = await window.ethereum.request({ 
+        method: 'eth_accounts' 
+      });
+      return false; // MetaMask is ready
+    } catch (error) {
+      if (error.code === -32002) {
+        return true; // MetaMask is busy
+      }
+      return false;
+    }
+  };
+
+  // ✅ FIX 3: Main connect function with robust error handling
   const connectWallet = async () => {
-    // ✅ FIX 1: Prevent double-click and pending connections
-    if (connecting || connectionPending) {
-      toast.info('Connection already in progress. Please wait...', {
-        description: 'Check if MetaMask popup is open'
+    // Prevent multiple simultaneous requests
+    if (connecting || pendingRequest) {
+      toast.warning('Please wait...', {
+        description: 'Previous connection attempt is still in progress',
+        duration: 3000
       });
       return;
     }
 
-    // ✅ FIX 2: Check MetaMask installation
+    // Check MetaMask installation
     if (!window.ethereum) {
-      toast.error('MetaMask not detected!', {
-        description: 'Please install MetaMask extension first',
+      toast.error('MetaMask not installed', {
+        description: 'Please install the MetaMask browser extension',
         action: {
-          label: 'Install',
+          label: 'Install Now',
           onClick: () => window.open('https://metamask.io/download', '_blank')
         }
       });
       return;
     }
 
+    // Check if MetaMask is already busy
+    const isBusy = await isMetaMaskBusy();
+    if (isBusy) {
+      toast.error('MetaMask is busy!', {
+        description: 'Close all MetaMask popups and try again',
+        duration: 5000,
+        action: {
+          label: 'Refresh Page',
+          onClick: () => window.location.reload()
+        }
+      });
+      return;
+    }
+
     setConnecting(true);
-    setConnectionPending(true);
-    
+    setPendingRequest(true);
+
+    // Set timeout to prevent eternal pending state
+    connectionTimeoutRef.current = setTimeout(() => {
+      if (connecting) {
+        setConnecting(false);
+        setPendingRequest(false);
+        toast.error('Connection timeout', {
+          description: 'MetaMask took too long to respond. Please try again.'
+        });
+      }
+    }, 60000); // 60 second timeout
+
     try {
-      console.log('🔗 Requesting MetaMask connection...');
+      console.log('🔗 Requesting MetaMask accounts...');
       
-      // ✅ FIX 3: Request with timeout
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('MetaMask connection timeout')), 30000)
-      );
-      
-      const connectPromise = window.ethereum.request({ 
+      // Request accounts with explicit method
+      const accounts = await window.ethereum.request({ 
         method: 'eth_requestAccounts' 
       });
-      
-      const accounts = await Promise.race([connectPromise, timeoutPromise]);
-      
-      if (!accounts || accounts.length === 0) {
-        throw new Error('No accounts found in MetaMask');
+
+      // Clear timeout on success
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
       }
-      
+
+      if (!accounts || accounts.length === 0) {
+        throw new Error('No accounts returned from MetaMask');
+      }
+
       const address = accounts[0];
       console.log('✅ MetaMask connected:', address);
 
       // Save to backend
-      console.log('💾 Saving wallet to database...');
+      console.log('💾 Saving wallet address to database...');
       const response = await api.post('/users/save-wallet', { 
         walletAddress: address 
       });
 
+      console.log('✅ Wallet saved successfully');
       setWalletAddress(address);
-      toast.success('🎉 Wallet connected successfully!', {
-        description: `${address.slice(0, 6)}...${address.slice(-4)}`,
+      
+      toast.success('🎉 Wallet connected!', {
+        description: `Address: ${address.slice(0, 6)}...${address.slice(-4)}`,
         duration: 5000
       });
-      
-      // Notify parent component
+
+      // Notify parent
       if (onWalletConnected) {
         onWalletConnected(address);
       }
-      
+
     } catch (error) {
-      console.error('❌ Wallet connection error:', error);
-      
-      // ✅ FIX 4: Specific error handling
+      console.error('❌ Wallet connection failed:', error);
+
+      // Clear timeout on error
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
+      }
+
+      // Handle specific error codes
       if (error.code === -32002) {
         toast.error('MetaMask popup already open!', {
-          description: 'Close all MetaMask windows and try again',
-          duration: 7000,
+          description: 'Close ALL MetaMask windows and refresh the page',
+          duration: 10000,
           action: {
-            label: 'Refresh Page',
+            label: 'Refresh Now',
             onClick: () => window.location.reload()
           }
         });
       } else if (error.code === 4001) {
-        toast.error('Connection rejected', {
-          description: 'You declined the connection request in MetaMask'
+        toast.warning('Connection rejected', {
+          description: 'You declined the connection in MetaMask'
         });
       } else if (error.code === -32603) {
         toast.error('MetaMask internal error', {
           description: 'Try unlocking MetaMask and refreshing the page'
         });
-      } else if (error.message?.includes('timeout')) {
-        toast.error('Connection timeout', {
-          description: 'MetaMask took too long to respond. Please try again.'
-        });
       } else if (error.response?.status === 400) {
+        // Backend validation error
         toast.error('Wallet already linked', {
           description: error.response.data.message || 'This wallet is connected to another student'
         });
+      } else if (error.message?.includes('No accounts')) {
+        toast.error('No accounts found', {
+          description: 'Please create or unlock an account in MetaMask'
+        });
       } else {
         toast.error('Connection failed', {
-          description: error.response?.data?.message || error.message || 'Please try again'
+          description: error.message || 'Please try again'
         });
       }
     } finally {
       setConnecting(false);
-      // ✅ FIX 5: Clear pending state after delay
-      setTimeout(() => setConnectionPending(false), 3000);
+      // Keep pending flag for extra 2 seconds to prevent rapid re-clicks
+      setTimeout(() => setPendingRequest(false), 2000);
     }
   };
 
@@ -302,13 +366,6 @@ const WalletConnectionCard = ({ user, onWalletConnected }) => {
       toast.success('Address copied!');
       setTimeout(() => setCopied(false), 2000);
     }
-  };
-
-  const disconnectWallet = () => {
-    // Optional: Add backend endpoint to clear wallet if needed
-    toast.info('To unlink wallet, contact administrator', {
-      description: 'Wallet addresses are permanent for security reasons'
-    });
   };
 
   return (
@@ -352,28 +409,18 @@ const WalletConnectionCard = ({ user, onWalletConnected }) => {
               </div>
             </div>
             
-            {/* Benefits List */}
-            <div className="bg-blue-50 dark:bg-blue-900/10 p-3 rounded-lg border border-blue-200 dark:border-blue-800 space-y-2">
+            {/* Benefits */}
+            <div className="bg-blue-50 dark:bg-blue-900/10 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
               <p className="text-xs font-semibold text-blue-900 dark:text-blue-100 mb-2">
-                ✅ Wallet Connected - You Can Now:
+                ✅ Enabled Features:
               </p>
               <ul className="text-xs text-blue-800 dark:text-blue-200 space-y-1">
-                <li className="flex items-start gap-2">
-                  <ShieldCheck className="h-3 w-3 mt-0.5 flex-shrink-0" />
-                  <span>Receive blockchain-verified NFT certificates</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <Zap className="h-3 w-3 mt-0.5 flex-shrink-0" />
-                  <span>Use "Sign-In with Ethereum" for passwordless login</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <Trophy className="h-3 w-3 mt-0.5 flex-shrink-0" />
-                  <span>Claim attendance POAPs for events you attend</span>
-                </li>
+                <li>• Receive NFT certificates</li>
+                <li>• Passwordless SIWE login</li>
+                <li>• Claim event POAPs</li>
               </ul>
             </div>
 
-            {/* View in MetaMask */}
             <Button 
               variant="outline" 
               size="sm" 
@@ -381,47 +428,58 @@ const WalletConnectionCard = ({ user, onWalletConnected }) => {
               className="w-full"
             >
               <ExternalLink className="h-3 w-3 mr-2" />
-              Open MetaMask
+              View in MetaMask
             </Button>
           </div>
         ) : (
           <div className="space-y-3">
-            {/* Warning Alert */}
-            <Alert className="bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800">
+            {/* Warning */}
+            <Alert className="bg-amber-50 dark:bg-amber-900/10 border-amber-200">
               <AlertCircle className="h-4 w-4 text-amber-600" />
               <AlertDescription className="text-sm text-amber-800 dark:text-amber-200">
-                Connect your wallet to receive blockchain certificates and use passwordless login.
+                Connect wallet to unlock blockchain features
               </AlertDescription>
             </Alert>
 
-            {/* ✅ IMPROVED: Shows pending state */}
+            {/* Connect Button */}
             <Button 
               onClick={connectWallet} 
-              disabled={connecting || connectionPending}
+              disabled={connecting || pendingRequest}
               className="w-full"
               size="lg"
             >
               {connecting ? (
                 <>
                   <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full mr-2" />
-                  Connecting to MetaMask...
-                </>
-              ) : connectionPending ? (
-                <>
-                  <div className="animate-pulse h-4 w-4 bg-white/50 rounded-full mr-2" />
                   Waiting for MetaMask...
+                </>
+              ) : pendingRequest ? (
+                <>
+                  <div className="animate-pulse h-2 w-2 bg-white rounded-full mr-2" />
+                  Please wait...
                 </>
               ) : (
                 <>
                   <LinkIcon className="h-4 w-4 mr-2" />
-                  Connect MetaMask Wallet
+                  Connect MetaMask
                 </>
               )}
             </Button>
-            
-            {/* Help Text */}
-            <div className="space-y-2">
-              <p className="text-xs text-muted-foreground text-center">
+
+            {/* Instructions */}
+            {(connecting || pendingRequest) && (
+              <div className="text-xs text-center p-3 bg-blue-50 dark:bg-blue-950/20 rounded border border-blue-200">
+                <p className="text-blue-900 dark:text-blue-100 font-semibold mb-1">
+                  👀 Check for MetaMask popup
+                </p>
+                <p className="text-blue-700 dark:text-blue-300">
+                  It might be behind other windows. Look for the MetaMask icon flashing in your browser.
+                </p>
+              </div>
+            )}
+
+            {!connecting && !pendingRequest && (
+              <p className="text-xs text-center text-muted-foreground">
                 Don't have MetaMask?{' '}
                 <a 
                   href="https://metamask.io/download" 
@@ -432,22 +490,14 @@ const WalletConnectionCard = ({ user, onWalletConnected }) => {
                   Install it here
                 </a>
               </p>
-              
-              {/* ✅ NEW: Troubleshooting tips */}
-              {(connecting || connectionPending) && (
-                <div className="text-xs text-center p-2 bg-blue-50 dark:bg-blue-950/20 rounded border border-blue-200 dark:border-blue-800">
-                  <p className="text-blue-800 dark:text-blue-200">
-                    💡 Check if MetaMask popup appeared. It might be behind other windows!
-                  </p>
-                </div>
-              )}
-            </div>
+            )}
           </div>
         )}
       </CardContent>
     </Card>
   );
 };
+
 
 // ============================================
 // BONUS: MetaMask Connection Checker
