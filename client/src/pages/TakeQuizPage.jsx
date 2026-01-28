@@ -1,4 +1,4 @@
-// client/src/pages/TakeQuizPage.jsx - DUPLICATE REQUEST PREVENTION
+// client/src/pages/TakeQuizPage.jsx - UI CONTRAST FIXED
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../api';
@@ -32,7 +32,6 @@ const TakeQuizPage = () => {
     const [lastAnswerCorrect, setLastAnswerCorrect] = useState(null);
     const [isLoadingQuestion, setIsLoadingQuestion] = useState(false);
 
-    // CRITICAL: Prevent duplicate requests
     const requestInProgress = useRef(false);
     const currentQuestionNumber = useRef(0);
 
@@ -45,7 +44,6 @@ const TakeQuizPage = () => {
     useEffect(() => {
         if (quiz && !result && !showExplanation && !isLoadingQuestion && !requestInProgress.current) {
             if (answers.length < quiz.totalQuestions) {
-                // Only load if we don't have a current question or question number changed
                 if (!currentQuestion || currentQuestionNumber.current !== answers.length + 1) {
                     loadNextQuestion();
                 }
@@ -58,7 +56,6 @@ const TakeQuizPage = () => {
 
     const loadQuizDetails = async () => {
         try {
-            console.log(`📚 Loading quiz: ${quizId}`);
             const res = await api.get(`/quiz/${quizId}/details`);
             
             if (res.data.hasPassed) {
@@ -68,9 +65,7 @@ const TakeQuizPage = () => {
             }
             
             setQuiz(res.data);
-            console.log(`✅ Quiz loaded: ${res.data.topic} (${res.data.totalQuestions}Q)`);
         } catch (err) {
-            console.error('❌ Load failed:', err);
             setError('Failed to load quiz');
             toast.error('Could not load quiz');
         } finally {
@@ -79,22 +74,13 @@ const TakeQuizPage = () => {
     };
 
     const loadNextQuestion = async () => {
-        // CRITICAL: Prevent duplicate requests
-        if (requestInProgress.current) {
-            console.log('⚠️ Request already in progress, skipping');
-            return;
-        }
-
-        if (answers.length >= quiz.totalQuestions) {
-            console.log('⚠️ At limit, skipping load');
+        if (requestInProgress.current || answers.length >= quiz.totalQuestions) {
             return;
         }
 
         const questionNum = answers.length + 1;
         
-        // Check if we already have this question loaded
         if (currentQuestion && currentQuestionNumber.current === questionNum) {
-            console.log(`⚠️ Q${questionNum} already loaded, skipping`);
             return;
         }
 
@@ -102,21 +88,14 @@ const TakeQuizPage = () => {
         setIsLoadingQuestion(true);
         
         try {
-            console.log(`🔄 Loading Q${questionNum}/${quiz.totalQuestions}`);
-            
             const res = await api.post('/quiz/next', {
                 quizId: quizId,
                 history: answers
             });
 
             if (res.data.limitReached) {
-                console.log('✅ Server confirmed limit');
                 submitQuiz();
                 return;
-            }
-
-            if (!res.data.question || !Array.isArray(res.data.options)) {
-                throw new Error('Invalid question data');
             }
 
             setCurrentQuestion(res.data);
@@ -124,16 +103,10 @@ const TakeQuizPage = () => {
             setSelectedAnswer(null);
             setShowExplanation(false);
             setLastAnswerCorrect(null);
-            console.log(`✅ Q${questionNum} loaded`);
             
         } catch (err) {
-            console.error('❌ Load failed:', err);
-            
             if (err.response?.data?.limitReached) {
                 submitQuiz();
-            } else if (err.response?.status === 429) {
-                toast.error('Rate limit hit, please wait...');
-                setError('Rate limit exceeded. Please wait a moment.');
             } else {
                 setError('Failed to load question');
                 toast.error('Error loading question');
@@ -157,22 +130,16 @@ const TakeQuizPage = () => {
             isCorrect: isCorrect,
             explanation: currentQuestion.explanation
         };
-
-        console.log(`${isCorrect ? '✅' : '❌'} Q${currentIndex + 1}`);
         
         setLastAnswerCorrect(isCorrect);
         setShowExplanation(true);
         
-        setAnswers(prev => {
-            const updated = [...prev, newAnswer];
-            console.log(`📊 Progress: ${updated.length}/${quiz.totalQuestions}`);
-            return updated;
-        });
+        setAnswers(prev => [...prev, newAnswer]);
     };
 
     const handleNext = () => {
         setShowExplanation(false);
-        setCurrentQuestion(null); // Clear current to trigger reload
+        setCurrentQuestion(null);
         currentQuestionNumber.current = 0;
     };
 
@@ -182,8 +149,6 @@ const TakeQuizPage = () => {
         setSubmitting(true);
         
         try {
-            console.log(`📊 Submitting: ${answers.length} answers`);
-            
             const correctCount = answers.filter(a => a.isCorrect).length;
             
             const res = await api.post('/quiz/submit', {
@@ -191,7 +156,6 @@ const TakeQuizPage = () => {
                 score: correctCount
             });
 
-            console.log('✅ Submitted:', res.data);
             setResult(res.data);
 
             if (res.data.passed) {
@@ -209,26 +173,22 @@ const TakeQuizPage = () => {
         }
     };
 
-    // LOADING STATE
     if (loading) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8 flex items-center justify-center">
+            <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-8 flex items-center justify-center">
                 <Card className="max-w-2xl w-full">
                     <CardContent className="p-12 text-center space-y-4">
                         <Loader2 className="h-12 w-12 animate-spin text-indigo-600 mx-auto" />
                         <p className="text-lg font-medium">Loading Quiz...</p>
-                        <Skeleton className="h-4 w-full" />
-                        <Skeleton className="h-4 w-3/4 mx-auto" />
                     </CardContent>
                 </Card>
             </div>
         );
     }
 
-    // ERROR STATE
     if (error) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8 flex items-center justify-center">
+            <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-8 flex items-center justify-center">
                 <Card className="max-w-md w-full">
                     <CardContent className="p-8 text-center space-y-4">
                         <AlertCircle className="h-12 w-12 text-red-500 mx-auto" />
@@ -243,14 +203,13 @@ const TakeQuizPage = () => {
         );
     }
 
-    // RESULTS STATE
     if (result) {
         const correctCount = answers.filter(a => a.isCorrect).length;
         const percentage = parseFloat(result.score);
         const passed = result.passed;
 
         return (
-            <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 p-8 flex items-center justify-center">
+            <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 dark:from-indigo-950/20 dark:via-purple-950/20 dark:to-pink-950/20 p-8 flex items-center justify-center">
                 <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="max-w-2xl w-full">
                     <Card className={`border-t-4 ${passed ? 'border-green-500' : 'border-red-500'}`}>
                         <CardHeader className="text-center space-y-4">
@@ -262,16 +221,18 @@ const TakeQuizPage = () => {
                         </CardHeader>
                         
                         <CardContent className="space-y-6">
-                            <div className="bg-slate-50 p-6 rounded-xl text-center border">
+                            <div className="bg-slate-50 dark:bg-slate-800 p-6 rounded-xl text-center border">
                                 <div className="text-5xl font-black mb-2">{correctCount}/{quiz.totalQuestions}</div>
-                                <div className="text-2xl font-bold text-indigo-600">{percentage}%</div>
+                                <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{percentage}%</div>
                                 <Progress value={percentage} className="mt-4 h-3" />
                             </div>
 
                             {passed && result.certificateId && (
-                                <Alert className="bg-green-50 border-green-200">
-                                    <Award className="h-5 w-5 text-green-600" />
-                                    <AlertDescription className="text-green-800">Certificate generated!</AlertDescription>
+                                <Alert className="bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800">
+                                    <Award className="h-5 w-5 text-green-600 dark:text-green-400" />
+                                    <AlertDescription className="text-green-800 dark:text-green-300">
+                                        Certificate generated! Check your dashboard.
+                                    </AlertDescription>
                                 </Alert>
                             )}
 
@@ -292,17 +253,15 @@ const TakeQuizPage = () => {
         );
     }
 
-    // QUESTION LOADING
     if (!currentQuestion || submitting || isLoadingQuestion) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8 flex items-center justify-center">
+            <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-8 flex items-center justify-center">
                 <Card className="max-w-2xl w-full">
                     <CardContent className="p-12 text-center space-y-4">
                         {submitting ? (
                             <>
                                 <Brain className="h-16 w-16 text-indigo-600 mx-auto animate-pulse" />
                                 <h3 className="text-2xl font-bold">Analyzing...</h3>
-                                <p className="text-muted-foreground">Calculating score</p>
                             </>
                         ) : (
                             <>
@@ -318,9 +277,8 @@ const TakeQuizPage = () => {
 
     const progressPercentage = ((currentIndex + 1) / quiz.totalQuestions) * 100;
 
-    // QUESTION DISPLAY
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/30 p-4 md:p-8">
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/30 dark:from-slate-950 dark:via-indigo-950/10 dark:to-purple-950/10 p-4 md:p-8">
             <div className="max-w-4xl mx-auto">
                 <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="mb-6">
                     <Card className="border-b-4 border-indigo-500">
@@ -343,7 +301,9 @@ const TakeQuizPage = () => {
                         <Card className="shadow-xl">
                             <CardHeader>
                                 <div className="flex items-center gap-2 mb-2">
-                                    <Badge className="bg-indigo-100 text-indigo-700">Q{currentIndex + 1}</Badge>
+                                    <Badge className="bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">
+                                        Q{currentIndex + 1}
+                                    </Badge>
                                     {currentQuestion.difficulty && <Badge variant="outline">{currentQuestion.difficulty}</Badge>}
                                 </div>
                                 <CardTitle className="text-xl leading-relaxed">{currentQuestion.question}</CardTitle>
@@ -363,33 +323,63 @@ const TakeQuizPage = () => {
                                             disabled={showFeedback}
                                             className={`w-full p-4 text-left rounded-xl border-2 transition-all ${
                                                 showFeedback
-                                                    ? isCorrect ? 'border-green-500 bg-green-50' : isSelected ? 'border-red-500 bg-red-50' : 'border-slate-200 opacity-50'
-                                                    : isSelected ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 hover:border-indigo-300'
+                                                    ? isCorrect
+                                                        ? 'border-green-500 bg-green-50 dark:bg-green-950/30 dark:border-green-700'
+                                                        : isSelected
+                                                        ? 'border-red-500 bg-red-50 dark:bg-red-950/30 dark:border-red-700'
+                                                        : 'border-slate-200 dark:border-slate-700 opacity-50'
+                                                    : isSelected
+                                                    ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30 dark:border-indigo-600'
+                                                    : 'border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600'
                                             }`}
                                         >
                                             <div className="flex items-center gap-3">
-                                                <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold ${
+                                                <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-sm ${
                                                     showFeedback
-                                                        ? isCorrect ? 'border-green-500 bg-green-500 text-white' : isSelected ? 'border-red-500 bg-red-500 text-white' : 'border-slate-300'
-                                                        : isSelected ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300'
+                                                        ? isCorrect
+                                                            ? 'border-green-600 bg-green-600 text-white'
+                                                            : isSelected
+                                                            ? 'border-red-600 bg-red-600 text-white'
+                                                            : 'border-slate-400 dark:border-slate-600 text-slate-700 dark:text-slate-400'
+                                                        : isSelected
+                                                        ? 'border-indigo-600 bg-indigo-600 text-white'
+                                                        : 'border-slate-400 dark:border-slate-600 text-slate-700 dark:text-slate-400'
                                                 }`}>
-                                                    {showFeedback ? (isCorrect ? <CheckCircle2 className="h-5 w-5" /> : isSelected ? <XCircle className="h-5 w-5" /> : String.fromCharCode(65 + idx)) : String.fromCharCode(65 + idx)}
+                                                    {showFeedback ? (
+                                                        isCorrect ? <CheckCircle2 className="h-5 w-5" /> : isSelected ? <XCircle className="h-5 w-5" /> : String.fromCharCode(65 + idx)
+                                                    ) : String.fromCharCode(65 + idx)}
                                                 </div>
-                                                <span className="flex-1">{option}</span>
+                                                <span className="flex-1 text-base text-slate-900 dark:text-slate-100">{option}</span>
                                             </div>
                                         </motion.button>
                                     );
                                 })}
 
                                 {showExplanation && currentQuestion.explanation && (
-                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`mt-4 p-4 rounded-lg border-2 ${lastAnswerCorrect ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+                                    <motion.div
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: 1 }}
+                                        className={`mt-4 p-4 rounded-lg border-2 ${
+                                            lastAnswerCorrect
+                                                ? 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800'
+                                                : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800'
+                                        }`}
+                                    >
                                         <div className="flex items-start gap-2">
-                                            <Lightbulb className={`h-5 w-5 ${lastAnswerCorrect ? 'text-green-600' : 'text-amber-600'}`} />
+                                            <Lightbulb className={`h-5 w-5 flex-shrink-0 mt-0.5 ${
+                                                lastAnswerCorrect ? 'text-green-700 dark:text-green-400' : 'text-amber-700 dark:text-amber-400'
+                                            }`} />
                                             <div>
-                                                <p className={`font-semibold mb-1 ${lastAnswerCorrect ? 'text-green-800' : 'text-amber-800'}`}>
+                                                <p className={`font-semibold mb-1 ${
+                                                    lastAnswerCorrect 
+                                                        ? 'text-green-900 dark:text-green-200' 
+                                                        : 'text-amber-900 dark:text-amber-200'
+                                                }`}>
                                                     {lastAnswerCorrect ? '✓ Correct!' : '✗ Incorrect'}
                                                 </p>
-                                                <p className="text-sm">{currentQuestion.explanation}</p>
+                                                <p className="text-sm text-slate-800 dark:text-slate-200">
+                                                    {currentQuestion.explanation}
+                                                </p>
                                             </div>
                                         </div>
                                     </motion.div>
@@ -398,12 +388,16 @@ const TakeQuizPage = () => {
 
                             <CardContent className="pt-0">
                                 {!showExplanation ? (
-                                    <Button onClick={handleAnswer} disabled={!selectedAnswer} className="w-full h-12">
+                                    <Button onClick={handleAnswer} disabled={!selectedAnswer} className="w-full h-12 text-lg">
                                         Submit Answer<Zap className="ml-2 h-5 w-5" />
                                     </Button>
                                 ) : (
-                                    <Button onClick={handleNext} className="w-full h-12">
-                                        {currentIndex + 1 >= quiz.totalQuestions ? <><CheckCircle2 className="mr-2 h-5 w-5" />Finish</> : <>Next<Zap className="ml-2 h-5 w-5" /></>}
+                                    <Button onClick={handleNext} className="w-full h-12 text-lg">
+                                        {currentIndex + 1 >= quiz.totalQuestions ? (
+                                            <><CheckCircle2 className="mr-2 h-5 w-5" />Finish Quiz</>
+                                        ) : (
+                                            <>Next Question<Zap className="ml-2 h-5 w-5" /></>
+                                        )}
                                     </Button>
                                 )}
                             </CardContent>

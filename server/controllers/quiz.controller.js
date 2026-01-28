@@ -1,4 +1,4 @@
-// server/controllers/quiz.controller.js - RATE LIMIT OPTIMIZED VERSION
+// server/controllers/quiz.controller.js - COMPLETE FIX
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const Quiz = require('../models/quiz.model');
 const Certificate = require('../models/certificate.model');
@@ -7,14 +7,14 @@ const User = require('../models/user.model');
 const { nanoid } = require('nanoid');
 const crypto = require('crypto');
 const { mintNFT } = require('../utils/blockchain');
-const { sendCertificateIssued } = require('../utils/mailer');
+const mailer = require('../utils/mailer'); // FIXED: Import entire module
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const MODEL_PRIORITY = [
-    "gemini-2.5-flash",      // Start with more stable model
-    "gemini-2.0-flash",      
-    "gemini-2.5-flash-lite", // Use lite as fallback
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.5-flash-lite",
 ];
 
 const cleanJSON = (text) => {
@@ -22,11 +22,9 @@ const cleanJSON = (text) => {
     return text.replace(/```json/g, '').replace(/```/g, '').trim();
 };
 
-// ============================================
-// RATE LIMIT PROTECTION - Question Cache
-// ============================================
+// Question Cache
 const questionCache = new Map();
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const CACHE_DURATION = 5 * 60 * 1000;
 
 function getCacheKey(quizId, questionNumber) {
     return `${quizId}-q${questionNumber}`;
@@ -50,16 +48,12 @@ function cacheQuestion(quizId, questionNumber, question) {
         timestamp: Date.now()
     });
     
-    // Auto-cleanup old cache entries
     if (questionCache.size > 100) {
         const firstKey = questionCache.keys().next().value;
         questionCache.delete(firstKey);
     }
 }
 
-// ============================================
-// FALLBACK QUESTIONS (Enhanced)
-// ============================================
 function getFallbackQuestion(topic, difficulty, questionNumber) {
     const templates = [
         {
@@ -71,7 +65,7 @@ function getFallbackQuestion(topic, difficulty, questionNumber) {
                 "Marketing terminology only"
             ],
             correctAnswer: "Fundamental principles and best practices",
-            explanation: `${topic} is built on foundational concepts that are essential for practical application.`
+            explanation: `${topic} is built on foundational concepts essential for practical application.`
         },
         {
             question: `What is the primary purpose of ${topic}?`,
@@ -93,7 +87,7 @@ function getFallbackQuestion(topic, difficulty, questionNumber) {
                 "Avoiding documentation"
             ],
             correctAnswer: "Problem-solving and analytical thinking",
-            explanation: `Success with ${topic} requires strong analytical and problem-solving abilities.`
+            explanation: `Success with ${topic} requires strong analytical abilities.`
         },
         {
             question: `How does ${topic} improve development processes?`,
@@ -104,18 +98,18 @@ function getFallbackQuestion(topic, difficulty, questionNumber) {
                 "By replacing all other tools"
             ],
             correctAnswer: "By providing structured and maintainable solutions",
-            explanation: `${topic} helps developers create more organized and maintainable code.`
+            explanation: `${topic} helps create organized and maintainable code.`
         },
         {
             question: `What is a common use case for ${topic}?`,
             options: [
                 "Building scalable and efficient applications",
                 "Creating simple static websites only",
-                "Replacing manual processes with slower automated ones",
+                "Replacing manual processes with slower ones",
                 "Documentation purposes exclusively"
             ],
             correctAnswer: "Building scalable and efficient applications",
-            explanation: `${topic} is commonly used in developing robust, scalable applications.`
+            explanation: `${topic} is commonly used in developing robust applications.`
         }
     ];
     
@@ -128,9 +122,6 @@ function getFallbackQuestion(topic, difficulty, questionNumber) {
     };
 }
 
-// ============================================
-// CREATE QUIZ
-// ============================================
 exports.createQuiz = async (req, res) => {
     try {
         const { topic, description, totalQuestions, passingScore } = req.body;
@@ -174,9 +165,6 @@ exports.createQuiz = async (req, res) => {
     }
 };
 
-// ============================================
-// GET AVAILABLE QUIZZES
-// ============================================
 exports.getAvailableQuizzes = async (req, res) => {
     try {
         const dept = req.user.department ? req.user.department.toUpperCase() : 'GENERAL';
@@ -205,9 +193,6 @@ exports.getAvailableQuizzes = async (req, res) => {
     }
 };
 
-// ============================================
-// GET QUIZ DETAILS
-// ============================================
 exports.getQuizDetails = async (req, res) => {
     try {
         const { quizId } = req.params;
@@ -233,9 +218,6 @@ exports.getQuizDetails = async (req, res) => {
     }
 };
 
-// ============================================
-// NEXT QUESTION (OPTIMIZED)
-// ============================================
 exports.nextQuestion = async (req, res) => {
     const { quizId, history } = req.body;
 
@@ -245,7 +227,6 @@ exports.nextQuestion = async (req, res) => {
 
         const currentQIndex = history ? history.length : 0;
         
-        // CRITICAL: Check limit
         if (currentQIndex >= quiz.totalQuestions) {
             console.log(`✅ Limit reached: ${currentQIndex}/${quiz.totalQuestions}`);
             return res.status(400).json({ 
@@ -256,13 +237,11 @@ exports.nextQuestion = async (req, res) => {
 
         const questionNumber = currentQIndex + 1;
 
-        // OPTIMIZATION: Check cache first
         const cachedQuestion = getCachedQuestion(quizId, questionNumber);
         if (cachedQuestion) {
             return res.json(cachedQuestion);
         }
 
-        // Calculate difficulty
         let difficulty = 'Medium';
         if (questionNumber <= 2) {
             difficulty = 'Easy';
@@ -275,7 +254,6 @@ exports.nextQuestion = async (req, res) => {
             else if (correctCount === 0) difficulty = 'Easy';
         }
 
-        // Build prompt
         const previousQuestions = history ? history.map(h => h.questionText).join(" | ") : "";
         const prompt = `Generate ONE unique multiple-choice question about "${quiz.topic}".
 
@@ -296,7 +274,6 @@ Format:
 
         console.log(`📝 Generating Q${questionNumber}/${quiz.totalQuestions} (${difficulty})`);
 
-        // Try AI models with error handling
         let generatedQuestion = null;
         
         for (const modelName of MODEL_PRIORITY) {
@@ -312,20 +289,17 @@ Format:
 
                 const questionData = JSON.parse(cleanJSON(text));
                 
-                // Validate structure
                 if (!questionData.question || !Array.isArray(questionData.options) || 
                     questionData.options.length !== 4 || !questionData.correctAnswer) {
                     console.warn(`⚠️ Invalid structure from ${modelName}`);
                     continue;
                 }
 
-                // Normalize
                 questionData.correctAnswer = questionData.correctAnswer.trim();
                 questionData.options = questionData.options.map(opt => opt.trim());
                 questionData.difficulty = difficulty;
                 questionData.questionNumber = questionNumber;
                 
-                // Verify answer exists in options
                 const answerExists = questionData.options.some(opt => 
                     opt.toLowerCase() === questionData.correctAnswer.toLowerCase()
                 );
@@ -340,44 +314,31 @@ Format:
                 break;
                 
             } catch (error) {
-                // Rate limit detection
                 if (error.message.includes('429') || error.message.includes('quota')) {
-                    console.error(`⚠️ Rate limit hit on ${modelName}, trying next...`);
+                    console.error(`⚠️ Rate limit hit on ${modelName}`);
                     continue;
                 }
-                
                 console.error(`❌ ${modelName} error: ${error.message}`);
                 continue;
             }
         }
 
-        // Use fallback if all models failed
         if (!generatedQuestion) {
-            console.warn(`⚠️ All AI models failed/exhausted, using fallback`);
+            console.warn(`⚠️ All AI models failed, using fallback`);
             generatedQuestion = getFallbackQuestion(quiz.topic, difficulty, questionNumber);
         }
 
-        // Cache the question
         cacheQuestion(quizId, questionNumber, generatedQuestion);
         
         return res.json(generatedQuestion);
 
     } catch (error) {
         console.error("Critical Error:", error);
-        
-        // Emergency fallback
         const questionNumber = (history ? history.length : 0) + 1;
-        return res.json(getFallbackQuestion(
-            'this topic', 
-            'Easy', 
-            questionNumber
-        ));
+        return res.json(getFallbackQuestion('this topic', 'Easy', questionNumber));
     }
 };
 
-// ============================================
-// SUBMIT QUIZ
-// ============================================
 exports.submitQuiz = async (req, res) => {
     const { quizId, score } = req.body;
     const userId = req.user.id;
@@ -419,7 +380,6 @@ exports.submitQuiz = async (req, res) => {
             });
         }
 
-        // Mint NFT
         let txHash = "PENDING";
         let tokenId = "PENDING"; 
         
@@ -451,8 +411,13 @@ exports.submitQuiz = async (req, res) => {
         
         await newCert.save();
         
-        sendCertificateIssued(normalizedEmail, student.name, certName, certId)
-            .catch(e => console.error('Email failed:', e));
+        // FIXED: Use mailer module correctly
+        if (mailer.sendCertificateIssued) {
+            mailer.sendCertificateIssued(normalizedEmail, student.name, certName, certId)
+                .catch(e => console.error('Email failed:', e));
+        } else {
+            console.warn('⚠️ Email function not available');
+        }
 
         res.json({ 
             passed: true, 
@@ -465,7 +430,7 @@ exports.submitQuiz = async (req, res) => {
 
     } catch (error) {
         console.error('Submit Error:', error);
-        res.status(500).json({ message: "Submission error" });
+        res.status(500).json({ message: "Submission error: " + error.message });
     }
 };
 
