@@ -1,4 +1,4 @@
-// server/controllers/quiz.controller.js - COMPLETE FIXED VERSION
+// server/controllers/quiz.controller.js - RATE LIMIT OPTIMIZED VERSION
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const Quiz = require('../models/quiz.model');
 const Certificate = require('../models/certificate.model');
@@ -12,10 +12,9 @@ const { sendCertificateIssued } = require('../utils/mailer');
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const MODEL_PRIORITY = [
-    "gemini-2.5-flash-lite",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-3-flash-preview"
+    "gemini-2.5-flash",      // Start with more stable model
+    "gemini-2.0-flash",      
+    "gemini-2.5-flash-lite", // Use lite as fallback
 ];
 
 const cleanJSON = (text) => {
@@ -23,45 +22,104 @@ const cleanJSON = (text) => {
     return text.replace(/```json/g, '').replace(/```/g, '').trim();
 };
 
-// --- ENHANCED FALLBACK with variety ---
+// ============================================
+// RATE LIMIT PROTECTION - Question Cache
+// ============================================
+const questionCache = new Map();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+function getCacheKey(quizId, questionNumber) {
+    return `${quizId}-q${questionNumber}`;
+}
+
+function getCachedQuestion(quizId, questionNumber) {
+    const key = getCacheKey(quizId, questionNumber);
+    const cached = questionCache.get(key);
+    
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+        console.log(`✅ Using cached question for Q${questionNumber}`);
+        return cached.question;
+    }
+    return null;
+}
+
+function cacheQuestion(quizId, questionNumber, question) {
+    const key = getCacheKey(quizId, questionNumber);
+    questionCache.set(key, {
+        question,
+        timestamp: Date.now()
+    });
+    
+    // Auto-cleanup old cache entries
+    if (questionCache.size > 100) {
+        const firstKey = questionCache.keys().next().value;
+        questionCache.delete(firstKey);
+    }
+}
+
+// ============================================
+// FALLBACK QUESTIONS (Enhanced)
+// ============================================
 function getFallbackQuestion(topic, difficulty, questionNumber) {
     const templates = [
         {
-            question: `Which of the following best describes ${topic}?`,
+            question: `Which of the following is a core concept in ${topic}?`,
             options: [
-                "A fundamental concept in computer science",
-                "An outdated technology",
-                "Only relevant for research",
-                "A marketing buzzword"
+                "Fundamental principles and best practices",
+                "Outdated legacy approaches",
+                "Theoretical concepts with no practical use",
+                "Marketing terminology only"
             ],
-            correctAnswer: "A fundamental concept in computer science",
-            explanation: `${topic} is an important concept in modern technology.`
+            correctAnswer: "Fundamental principles and best practices",
+            explanation: `${topic} is built on foundational concepts that are essential for practical application.`
         },
         {
-            question: `What is a key characteristic of ${topic}?`,
+            question: `What is the primary purpose of ${topic}?`,
             options: [
-                "It requires extensive theoretical knowledge",
-                "It has no practical applications",
-                "It is only used by large companies",
-                "It was invented recently"
+                "To solve real-world problems efficiently",
+                "To add unnecessary complexity",
+                "To replace all existing solutions",
+                "To serve as documentation only"
             ],
-            correctAnswer: "It requires extensive theoretical knowledge",
-            explanation: `Understanding ${topic} requires solid foundational knowledge.`
+            correctAnswer: "To solve real-world problems efficiently",
+            explanation: `${topic} is designed to address practical challenges in development.`
         },
         {
-            question: `Which skill is most closely related to ${topic}?`,
+            question: `Which skill is most important when working with ${topic}?`,
             options: [
-                "Problem-solving and logical thinking",
-                "Physical fitness",
-                "Artistic creativity only",
-                "Foreign language proficiency"
+                "Problem-solving and analytical thinking",
+                "Memorizing syntax only",
+                "Following trends blindly",
+                "Avoiding documentation"
             ],
-            correctAnswer: "Problem-solving and logical thinking",
-            explanation: `${topic} heavily relies on analytical skills.`
+            correctAnswer: "Problem-solving and analytical thinking",
+            explanation: `Success with ${topic} requires strong analytical and problem-solving abilities.`
+        },
+        {
+            question: `How does ${topic} improve development processes?`,
+            options: [
+                "By providing structured and maintainable solutions",
+                "By making code more complex",
+                "By eliminating the need for testing",
+                "By replacing all other tools"
+            ],
+            correctAnswer: "By providing structured and maintainable solutions",
+            explanation: `${topic} helps developers create more organized and maintainable code.`
+        },
+        {
+            question: `What is a common use case for ${topic}?`,
+            options: [
+                "Building scalable and efficient applications",
+                "Creating simple static websites only",
+                "Replacing manual processes with slower automated ones",
+                "Documentation purposes exclusively"
+            ],
+            correctAnswer: "Building scalable and efficient applications",
+            explanation: `${topic} is commonly used in developing robust, scalable applications.`
         }
     ];
     
-    const index = questionNumber % templates.length;
+    const index = (questionNumber - 1) % templates.length;
     return {
         ...templates[index],
         difficulty,
@@ -70,7 +128,9 @@ function getFallbackQuestion(topic, difficulty, questionNumber) {
     };
 }
 
-// --- 1. CREATE QUIZ ---
+// ============================================
+// CREATE QUIZ
+// ============================================
 exports.createQuiz = async (req, res) => {
     try {
         const { topic, description, totalQuestions, passingScore } = req.body;
@@ -114,7 +174,9 @@ exports.createQuiz = async (req, res) => {
     }
 };
 
-// --- 2. GET QUIZZES ---
+// ============================================
+// GET AVAILABLE QUIZZES
+// ============================================
 exports.getAvailableQuizzes = async (req, res) => {
     try {
         const dept = req.user.department ? req.user.department.toUpperCase() : 'GENERAL';
@@ -143,7 +205,9 @@ exports.getAvailableQuizzes = async (req, res) => {
     }
 };
 
-// --- 3. GET QUIZ DETAILS ---
+// ============================================
+// GET QUIZ DETAILS
+// ============================================
 exports.getQuizDetails = async (req, res) => {
     try {
         const { quizId } = req.params;
@@ -169,7 +233,9 @@ exports.getQuizDetails = async (req, res) => {
     }
 };
 
-// --- 4. NEXT QUESTION (FIXED) ---
+// ============================================
+// NEXT QUESTION (OPTIMIZED)
+// ============================================
 exports.nextQuestion = async (req, res) => {
     const { quizId, history } = req.body;
 
@@ -177,55 +243,62 @@ exports.nextQuestion = async (req, res) => {
         const quiz = await Quiz.findById(quizId);
         if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
-        // CRITICAL FIX: Check if we've reached the question limit
         const currentQIndex = history ? history.length : 0;
         
+        // CRITICAL: Check limit
         if (currentQIndex >= quiz.totalQuestions) {
-            console.log(`✅ Quiz limit reached: ${currentQIndex}/${quiz.totalQuestions} questions`);
+            console.log(`✅ Limit reached: ${currentQIndex}/${quiz.totalQuestions}`);
             return res.status(400).json({ 
                 message: "Quiz completed. Please submit.",
                 limitReached: true 
             });
         }
 
-        // Calculate difficulty based on performance
-        let difficulty = 'Medium';
-        if (currentQIndex < 3) {
-            difficulty = 'Easy';
-        } else if (currentQIndex >= quiz.totalQuestions - 3) {
-            difficulty = 'Hard';
-        } else if (history) {
-            const recentAnswers = history.slice(-3);
-            const recentCorrect = recentAnswers.filter(a => a.isCorrect).length;
-            if (recentCorrect >= 2) difficulty = 'Hard';
-            else if (recentCorrect === 0) difficulty = 'Easy';
+        const questionNumber = currentQIndex + 1;
+
+        // OPTIMIZATION: Check cache first
+        const cachedQuestion = getCachedQuestion(quizId, questionNumber);
+        if (cachedQuestion) {
+            return res.json(cachedQuestion);
         }
 
-        // Extract previous questions to avoid repeats
-        const previousQuestions = history ? history.map(h => h.questionText) : [];
-        const previousTopics = previousQuestions.join(" | ");
+        // Calculate difficulty
+        let difficulty = 'Medium';
+        if (questionNumber <= 2) {
+            difficulty = 'Easy';
+        } else if (questionNumber >= quiz.totalQuestions - 2) {
+            difficulty = 'Hard';
+        } else if (history && history.length >= 3) {
+            const recent = history.slice(-3);
+            const correctCount = recent.filter(a => a.isCorrect).length;
+            if (correctCount >= 2) difficulty = 'Hard';
+            else if (correctCount === 0) difficulty = 'Easy';
+        }
 
-        // ENHANCED PROMPT with repeat prevention
+        // Build prompt
+        const previousQuestions = history ? history.map(h => h.questionText).join(" | ") : "";
         const prompt = `Generate ONE unique multiple-choice question about "${quiz.topic}".
 
-IMPORTANT RULES:
-1. Question must be DIFFERENT from these: ${previousTopics || "None yet"}
+RULES:
+1. Must be different from: ${previousQuestions || "None yet"}
 2. Difficulty: ${difficulty}
-3. Provide exactly 4 distinct options
-4. Make the correct answer unambiguous
-5. Return ONLY valid JSON, no markdown
+3. Exactly 4 options
+4. One correct answer that exists in options
+5. Return ONLY valid JSON
 
-Required format:
+Format:
 {
-  "question": "Clear question text",
-  "options": ["Option A", "Option B", "Option C", "Option D"],
-  "correctAnswer": "Exact text of one option",
-  "explanation": "Brief explanation"
+  "question": "question text",
+  "options": ["A", "B", "C", "D"],
+  "correctAnswer": "exact text from options",
+  "explanation": "brief explanation"
 }`;
 
-        console.log(`📝 Generating Q${currentQIndex + 1}/${quiz.totalQuestions} (${difficulty})`);
+        console.log(`📝 Generating Q${questionNumber}/${quiz.totalQuestions} (${difficulty})`);
 
-        // TRY MODELS
+        // Try AI models with error handling
+        let generatedQuestion = null;
+        
         for (const modelName of MODEL_PRIORITY) {
             try {
                 console.log(`🤖 Trying: ${modelName}`);
@@ -235,53 +308,76 @@ Required format:
                 const response = await result.response;
                 const text = response.text();
                 
-                if (text) {
-                    const questionData = JSON.parse(cleanJSON(text));
-                    
-                    // Validate
-                    if (!questionData.question || !Array.isArray(questionData.options) || 
-                        questionData.options.length !== 4 || !questionData.correctAnswer) {
-                        console.warn(`⚠️ Invalid data from ${modelName}`);
-                        continue;
-                    }
+                if (!text) continue;
 
-                    // Normalize
-                    questionData.correctAnswer = questionData.correctAnswer.trim();
-                    questionData.options = questionData.options.map(opt => opt.trim());
-                    questionData.difficulty = difficulty;
-                    questionData.questionNumber = currentQIndex + 1;
-                    
-                    // Verify answer in options
-                    const answerExists = questionData.options.some(opt => 
-                        opt.toLowerCase() === questionData.correctAnswer.toLowerCase()
-                    );
-                    
-                    if (!answerExists) {
-                        console.warn(`⚠️ Answer not in options: ${modelName}`);
-                        // Fix: Use first option as correct answer
-                        questionData.correctAnswer = questionData.options[0];
-                    }
-                    
-                    console.log(`✅ Generated by ${modelName}`);
-                    return res.json(questionData);
+                const questionData = JSON.parse(cleanJSON(text));
+                
+                // Validate structure
+                if (!questionData.question || !Array.isArray(questionData.options) || 
+                    questionData.options.length !== 4 || !questionData.correctAnswer) {
+                    console.warn(`⚠️ Invalid structure from ${modelName}`);
+                    continue;
                 }
+
+                // Normalize
+                questionData.correctAnswer = questionData.correctAnswer.trim();
+                questionData.options = questionData.options.map(opt => opt.trim());
+                questionData.difficulty = difficulty;
+                questionData.questionNumber = questionNumber;
+                
+                // Verify answer exists in options
+                const answerExists = questionData.options.some(opt => 
+                    opt.toLowerCase() === questionData.correctAnswer.toLowerCase()
+                );
+                
+                if (!answerExists) {
+                    console.warn(`⚠️ Answer mismatch in ${modelName}, auto-fixing`);
+                    questionData.correctAnswer = questionData.options[0];
+                }
+                
+                generatedQuestion = questionData;
+                console.log(`✅ Generated by ${modelName}`);
+                break;
+                
             } catch (error) {
-                console.error(`❌ ${modelName} failed: ${error.message}`);
+                // Rate limit detection
+                if (error.message.includes('429') || error.message.includes('quota')) {
+                    console.error(`⚠️ Rate limit hit on ${modelName}, trying next...`);
+                    continue;
+                }
+                
+                console.error(`❌ ${modelName} error: ${error.message}`);
                 continue;
             }
         }
 
-        // FALLBACK
-        console.error("⚠️ All AI failed. Using fallback.");
-        return res.json(getFallbackQuestion(quiz.topic, difficulty, currentQIndex + 1));
+        // Use fallback if all models failed
+        if (!generatedQuestion) {
+            console.warn(`⚠️ All AI models failed/exhausted, using fallback`);
+            generatedQuestion = getFallbackQuestion(quiz.topic, difficulty, questionNumber);
+        }
+
+        // Cache the question
+        cacheQuestion(quizId, questionNumber, generatedQuestion);
+        
+        return res.json(generatedQuestion);
 
     } catch (error) {
         console.error("Critical Error:", error);
-        res.status(500).json({ message: "Internal Server Error" });
+        
+        // Emergency fallback
+        const questionNumber = (history ? history.length : 0) + 1;
+        return res.json(getFallbackQuestion(
+            'this topic', 
+            'Easy', 
+            questionNumber
+        ));
     }
 };
 
-// --- 5. SUBMIT & MINT (FIXED) ---
+// ============================================
+// SUBMIT QUIZ
+// ============================================
 exports.submitQuiz = async (req, res) => {
     const { quizId, score } = req.body;
     const userId = req.user.id;
@@ -290,17 +386,16 @@ exports.submitQuiz = async (req, res) => {
         const quiz = await Quiz.findById(quizId);
         if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
-        // FIXED: Calculate percentage correctly
-        const correctAnswers = Math.round(score); // score is already the count
+        const correctAnswers = Math.round(score);
         const percentage = (correctAnswers / quiz.totalQuestions) * 100;
 
-        console.log(`📊 Quiz submission: ${correctAnswers}/${quiz.totalQuestions} = ${percentage.toFixed(1)}%`);
+        console.log(`📊 Submission: ${correctAnswers}/${quiz.totalQuestions} = ${percentage.toFixed(1)}%`);
 
         if (percentage < quiz.passingScore) {
             return res.json({ 
                 passed: false, 
                 score: percentage.toFixed(1),
-                correctAnswers: correctAnswers,
+                correctAnswers,
                 totalQuestions: quiz.totalQuestions,
                 message: `Score: ${percentage.toFixed(1)}% (Need ${quiz.passingScore}%)` 
             });
@@ -310,7 +405,6 @@ exports.submitQuiz = async (req, res) => {
         const certName = `Certified: ${quiz.topic}`;
         const normalizedEmail = student.email.toLowerCase();
 
-        // Check for existing certificate
         const existing = await Certificate.findOne({ 
             eventName: certName, 
             studentEmail: normalizedEmail 
@@ -341,7 +435,6 @@ exports.submitQuiz = async (req, res) => {
             }
         }
 
-        // Create certificate
         const certId = `SKILL-${nanoid(8)}`;
         const newCert = new Certificate({
             certificateId: certId,
@@ -358,22 +451,21 @@ exports.submitQuiz = async (req, res) => {
         
         await newCert.save();
         
-        // Send email
         sendCertificateIssued(normalizedEmail, student.name, certName, certId)
             .catch(e => console.error('Email failed:', e));
 
         res.json({ 
             passed: true, 
             score: percentage.toFixed(1),
-            correctAnswers: correctAnswers,
+            correctAnswers,
             totalQuestions: quiz.totalQuestions,
             certificateId: certId, 
-            message: "Quiz Passed! Certificate Issued." 
+            message: "Passed! Certificate Issued." 
         });
 
     } catch (error) {
-        console.error('Submit Quiz Error:', error);
-        res.status(500).json({ message: "Error submitting quiz" });
+        console.error('Submit Error:', error);
+        res.status(500).json({ message: "Submission error" });
     }
 };
 
